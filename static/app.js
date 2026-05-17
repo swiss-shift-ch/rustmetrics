@@ -52,6 +52,13 @@
     setNotifyOnline:   $("#set-notify-online"),
     setNotifyOffline:  $("#set-notify-offline"),
     btnTestWebhook:    $("#btn-test-webhook"),
+    calWebcalUrl:      $("#cal-webcal-url"),
+    calHttpsUrl:       $("#cal-https-url"),
+    calWebcalOpen:     $("#cal-webcal-open"),
+    btnCalCopy:        $("#btn-cal-copy"),
+    btnCalCopyHttps:   $("#btn-cal-copy-https"),
+    btnCalReset:       $("#btn-cal-reset"),
+    calStatus:         $("#cal-status"),
     settingsStatus:    $("#settings-status"),
     drawer:         $("#detail-drawer"),
     drawerBody:     $("#drawer-body"),
@@ -121,6 +128,9 @@
       browseFetched = true;
       loadBrowse();
     }
+    if (name === "mystats") {
+      loadMyStats();
+    }
     try { localStorage.setItem(LS_PREFIX + "tab", name); } catch (e) {}
   }
   els.navItems.forEach(t => {
@@ -178,6 +188,12 @@
         if (els.setDiscordWebhook) els.setDiscordWebhook.value = me.settings.discord_webhook || "";
         if (els.setNotifyOnline)   els.setNotifyOnline.checked = !!me.settings.notify_online;
         if (els.setNotifyOffline)  els.setNotifyOffline.checked = !!me.settings.notify_offline;
+      }
+      // Calendar-URL bestücken
+      if (me.calendar) {
+        if (els.calWebcalUrl) els.calWebcalUrl.value = me.calendar.webcal_url || "";
+        if (els.calHttpsUrl)  els.calHttpsUrl.value  = me.calendar.url || "";
+        if (els.calWebcalOpen) els.calWebcalOpen.href = me.calendar.webcal_url || "#";
       }
     } else {
       els.guestCta.hidden = false;
@@ -814,6 +830,215 @@
     }
   });
 
+  // ─── Wipe-Calendar (ICS-Feed) ────────────────────────────────────────
+  function showCalStatus(msg, ok) {
+    if (!els.calStatus) return;
+    els.calStatus.textContent = msg;
+    els.calStatus.className = "settings-status " + (ok ? "ok" : "error");
+    if (msg) setTimeout(() => {
+      if (els.calStatus.textContent === msg) {
+        els.calStatus.textContent = "";
+        els.calStatus.className = "settings-status";
+      }
+    }, 6000);
+  }
+  async function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try { await navigator.clipboard.writeText(text); return true; }
+      catch (e) {/* fall through */}
+    }
+    // Fallback for non-secure contexts
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    ta.remove();
+    return ok;
+  }
+  els.btnCalCopy?.addEventListener("click", async () => {
+    const url = els.calWebcalUrl?.value || "";
+    if (!url) return;
+    const ok = await copyToClipboard(url);
+    showCalStatus(ok ? "✓ webcal:// URL copied" : "couldn't copy — select manually", ok);
+  });
+  els.btnCalCopyHttps?.addEventListener("click", async () => {
+    const url = els.calHttpsUrl?.value || "";
+    if (!url) return;
+    const ok = await copyToClipboard(url);
+    showCalStatus(ok ? "✓ HTTPS URL copied" : "couldn't copy — select manually", ok);
+  });
+  els.btnCalReset?.addEventListener("click", async () => {
+    if (!confirm("Generate a new subscribe link? Existing subscribers (e.g. your calendar app) will stop receiving updates and need to be re-added.")) return;
+    showCalStatus("regenerating …", true);
+    try {
+      const r = await api("/api/me/calendar/reset", { method: "POST" });
+      if (els.calWebcalUrl) els.calWebcalUrl.value = r.webcal_url || "";
+      if (els.calHttpsUrl)  els.calHttpsUrl.value  = r.url || "";
+      if (els.calWebcalOpen) els.calWebcalOpen.href = r.webcal_url || "#";
+      showCalStatus("✓ new link generated", true);
+    } catch (err) {
+      showCalStatus("Error: " + err.message, false);
+    }
+  });
+
+  // ─── My Rust Stats (Steam GetUserStatsForGame) ───────────────────────
+  const mystats = {
+    guest:    document.getElementById("mystats-guest"),
+    body:     document.getElementById("mystats-body"),
+    loading:  document.getElementById("mystats-loading"),
+    content:  document.getElementById("mystats-content"),
+    privBox:  document.getElementById("mystats-private"),
+    errBox:   document.getElementById("mystats-error"),
+    refresh:  document.getElementById("btn-mystats-refresh"),
+  };
+  function fmtIntStats(n) {
+    if (n === null || n === undefined) return "—";
+    return Number(n).toLocaleString("en-US").replace(/,/g, " ");
+  }
+  function fmtDuration(s) {
+    if (!s) return "—";
+    s = Number(s);
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s/60) + "m";
+    if (s < 86400) {
+      const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60);
+      return m ? h+"h "+String(m).padStart(2,"0")+"m" : h+"h";
+    }
+    const d = Math.floor(s/86400); const h = Math.floor((s%86400)/3600);
+    return h ? d+"d "+h+"h" : d+"d";
+  }
+  function statCard(label, value, sub) {
+    return '<div class="stat-card">'
+      + '<div class="stat-num">' + fmt.escape(String(value)) + '</div>'
+      + '<div class="stat-label">' + fmt.escape(label) + '</div>'
+      + (sub ? '<div class="stat-sub">' + fmt.escape(sub) + '</div>' : '')
+      + '</div>';
+  }
+  function statRow(label, value) {
+    return '<div class="stat-row"><span>' + fmt.escape(label)
+         + '</span><span class="stat-row-v">' + fmt.escape(String(value)) + '</span></div>';
+  }
+  function renderMyStatsBlock(row) {
+    const kills  = row.kill_player || 0;
+    const deaths = row.deaths || 0;
+    const kd     = deaths ? (kills / deaths).toFixed(2) : "—";
+    const hs     = row.headshot || 0;
+    const hsPct  = kills ? (100 * hs / kills).toFixed(1) + "%" : "—";
+    const bf     = row.bullet_fired || 0;
+    const bhp    = row.bullet_hit_player || 0;
+    const acc    = bf ? (100 * bhp / bf).toFixed(1) + "%" : "—";
+
+    const cards = [
+      statCard("Kills",     fmtIntStats(kills),  "K/D " + kd),
+      statCard("Deaths",    fmtIntStats(deaths)),
+      statCard("Headshots", fmtIntStats(hs),     hsPct + " of kills"),
+      statCard("Hit rate",  acc,                 fmtIntStats(bf) + " fired"),
+    ].join("");
+
+    const bulletHits = [
+      ["Players",   row.bullet_hit_player],
+      ["Buildings", row.bullet_hit_building],
+      ["Signs",     row.bullet_hit_sign],
+      ["Wolves",    row.bullet_hit_wolf],
+      ["Bears",     row.bullet_hit_bear],
+      ["Boars",     row.bullet_hit_boar],
+      ["Stags",     row.bullet_hit_stag],
+      ["Horses",    row.bullet_hit_horse],
+      ["Corpses",   row.bullet_hit_corpse],
+    ].filter(([_,v]) => v).map(([l,v]) => statRow(l, fmtIntStats(v))).join("");
+    const bulletList = bulletHits ?
+      '<div class="stat-list"><div class="stat-list-title">Bullets hit, by target</div>' + bulletHits + '</div>' : '';
+
+    const harvest = [
+      ["Wood",       row.harvested_wood],
+      ["Stones",     row.harvested_stones],
+      ["Cloth",      row.harvested_cloth],
+      ["Leather",    row.harvested_leather],
+      ["Sulfur ore", row.harvested_sulfur_ore],
+      ["Metal ore",  row.harvested_metal_ore],
+      ["HQ metal",   row.harvested_hq_metal_ore],
+      ["Scrap",      row.acquired_scrap],
+      ["Sulfur (gathered)", row.acquired_sulfur],
+      ["Metal frags",row.acquired_metalfrag],
+      ["Low-grade fuel", row.acquired_lowgradefuel],
+    ].filter(([_,v]) => v).map(([l,v]) => statRow(l, fmtIntStats(v))).join("");
+    const harvestList = harvest ?
+      '<div class="stat-list"><div class="stat-list-title">Harvested / acquired</div>' + harvest + '</div>' : '';
+
+    const misc = [
+      ["Playtime (tracked by Rust)", fmtDuration(row.seconds_played)],
+      ["Wounded",        fmtIntStats(row.wounded)],
+      ["C4 thrown",      fmtIntStats(row.c4_thrown)],
+      ["Rockets fired",  fmtIntStats(row.rocket_fired)],
+      ["Melee thrown",   fmtIntStats(row.melee_thrown)],
+      ["Arrows fired",   fmtIntStats(row.arrow_fired)],
+      ["Arrows hit",     fmtIntStats(row.arrow_hit_player)],
+      ["Time cold",      fmtDuration(row.seconds_cold)],
+      ["Time hot",       fmtDuration(row.seconds_hot)],
+      ["Time comfy",     fmtDuration(row.seconds_comfort)],
+    ].filter(([_,v]) => v && v !== "—" && v !== "0").map(([l,v]) => statRow(l, v)).join("");
+    const miscList = misc ?
+      '<div class="stat-list"><div class="stat-list-title">Other</div>' + misc + '</div>' : '';
+
+    const fetched = row.fetched_at || 0;
+    const age = fetched ? Math.max(0, Math.floor(Date.now()/1000) - fetched) : null;
+    let ageStr = "";
+    if (age === null) ageStr = "";
+    else if (age < 60) ageStr = "just now";
+    else if (age < 3600) ageStr = Math.floor(age/60) + "m ago";
+    else ageStr = Math.floor(age/3600) + "h ago";
+    const footer = ageStr
+      ? '<p class="hint" style="text-align:right; font-size:11px; margin-top:8px;">counters from Steam · cached ' + fmt.escape(ageStr) + '</p>'
+      : '';
+
+    return '<div class="stat-cards">' + cards + '</div>'
+         + '<div class="stat-lists">' + bulletList + harvestList + miscList + '</div>'
+         + footer;
+  }
+  let mystatsLoaded = false;
+  async function loadMyStats(force) {
+    if (!mystats.body) return;
+    if (!isAuthed()) {
+      if (mystats.guest) mystats.guest.hidden = false;
+      mystats.body.hidden = true;
+      return;
+    }
+    if (mystats.guest) mystats.guest.hidden = true;
+    mystats.body.hidden = false;
+    if (mystatsLoaded && !force) return;
+    mystats.loading.hidden = false;
+    mystats.content.hidden = true;
+    mystats.privBox.hidden = true;
+    mystats.errBox.hidden  = true;
+    try {
+      const endpoint = force ? "/api/me/stats/refresh" : "/api/me/stats";
+      const opts = force ? { method: "POST" } : {};
+      const data = await api(endpoint, opts);
+      mystats.loading.hidden = true;
+      if (data.error) {
+        mystats.errBox.textContent = data.error;
+        mystats.errBox.hidden = false;
+        return;
+      }
+      if (data.is_private) {
+        mystats.privBox.hidden = false;
+        return;
+      }
+      mystats.content.innerHTML = renderMyStatsBlock(data);
+      mystats.content.hidden = false;
+      mystatsLoaded = true;
+    } catch (e) {
+      mystats.loading.hidden = true;
+      mystats.errBox.textContent = "Failed to load stats: " + e.message;
+      mystats.errBox.hidden = false;
+    }
+  }
+  mystats.refresh?.addEventListener("click", () => {
+    mystatsLoaded = false;
+    loadMyStats(true);
+  });
+
   // ─── Cookie banner ────────────────────────────────────────────────────
   const COOKIE_ACK_KEY = LS_PREFIX + "cookieAck";
   function setupCookieBanner() {
@@ -837,6 +1062,6 @@
   })();
   try {
     const saved = localStorage.getItem(LS_PREFIX + "tab");
-    if (["browse","watchlist","about","settings"].includes(saved)) switchTab(saved);
+    if (["browse","watchlist","about","settings","mystats"].includes(saved)) switchTab(saved);
   } catch (e) {}
 })();

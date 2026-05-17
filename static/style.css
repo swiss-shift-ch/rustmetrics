@@ -938,6 +938,70 @@ a:hover { color: var(--accent); text-decoration: underline; }
   user-select: none;
 }
 
+/* Rust Lifetime Stats — Cards + Lists */
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 8px 0 16px 0;
+}
+.stat-card {
+  background: var(--bg-table-row);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 12px;
+  text-align: center;
+}
+.stat-card .stat-num {
+  font-size: 22px; font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+}
+.stat-card .stat-label {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+}
+.stat-card .stat-sub {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--accent-bright);
+  font-variant-numeric: tabular-nums;
+}
+.stat-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.stat-list {
+  background: var(--bg-table-row);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.stat-list-title {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.stat-row {
+  display: flex; justify-content: space-between;
+  font-size: 13px;
+  padding: 3px 0;
+  color: var(--text);
+}
+.stat-row .stat-row-v {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
 /* Klickbarer Player-Name → /player/<bm_id> */
 .plink {
   color: inherit;

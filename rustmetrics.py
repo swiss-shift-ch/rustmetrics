@@ -89,7 +89,12 @@ RUST_APPID       = 252490
 #   1. Steam Web API (IGameServersService/GetServerList) — wenn RM_STEAM_API_KEY gesetzt
 #   2. BattleMetrics Public API als Fallback — ohne Key, rate-limited
 STEAM_GETSERVERLIST_URL = "https://api.steampowered.com/IGameServersService/GetServerList/v1/"
+STEAM_GETUSERSTATS_URL  = "https://api.steampowered.com/ISteamUserStats/GetUserStatsForGame/v2/"
 BATTLEMETRICS_URL       = "https://api.battlemetrics.com/servers"
+BATTLEMETRICS_PLAYER_URL = "https://api.battlemetrics.com/players"
+
+# Cache-TTL für Rust-Stats (Steam-Counter ändern sich langsam, 1h reicht für Live-Page).
+RUST_STATS_CACHE_TTL = _env("RM_RUST_STATS_CACHE_TTL", 3600, int)
 
 # Region-Mapping für BM (BM filtert nach ISO-Ländercodes statt Steam-Region-Bytes)
 REGION_TO_COUNTRIES = {
@@ -683,6 +688,177 @@ def fetch_steam_profile(steamid64: int) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  RUST USER-STATS (Steam GetUserStatsForGame, appid 252490)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Rust selber lädt ~80 In-Game-Counter pro Spieler via Steam-Stats-API hoch
+# (Kills, Deaths, gesammelte Materialien, Bullet-Hits per Tier-Tier, etc.).
+# Wir fetchen die via Steam Web API und cachen in DB (1h TTL).
+# Profile mit privatem "Game Details"-Setting liefern 403/leeres Result,
+# das wird als is_private=TRUE markiert.
+
+# Mapping von Steam-Stat-Namen → DB-Spalte. Nur die ~30 wichtigsten;
+# raw_json speichert den kompletten Response für Future-Use.
+RUST_STAT_COLUMNS = {
+    "seconds_played":           "seconds_played",
+    "deaths":                   "deaths",
+    "kill_player":              "kill_player",
+    "headshot":                 "headshot",
+    "wounded":                  "wounded",
+    "bullet_fired":             "bullet_fired",
+    "bullet_hit_player":        "bullet_hit_player",
+    "bullet_hit_building":      "bullet_hit_building",
+    "bullet_hit_sign":          "bullet_hit_sign",
+    "bullet_hit_wolf":          "bullet_hit_wolf",
+    "bullet_hit_bear":          "bullet_hit_bear",
+    "bullet_hit_boar":          "bullet_hit_boar",
+    "bullet_hit_stag":          "bullet_hit_stag",
+    "bullet_hit_horse":         "bullet_hit_horse",
+    "bullet_hit_corpse":        "bullet_hit_corpse",
+    "arrow_fired":              "arrow_fired",
+    "arrow_hit_player":         "arrow_hit_player",
+    "arrow_hit_entity":         "arrow_hit_entity",
+    "harvested_wood":           "harvested_wood",
+    "harvested_stones":         "harvested_stones",
+    "harvested_cloth":          "harvested_cloth",
+    "harvested_leather":        "harvested_leather",
+    "harvested_sulfur.ore":     "harvested_sulfur_ore",
+    "harvested_metal.ore":      "harvested_metal_ore",
+    "harvested_hq.metal.ore":   "harvested_hq_metal_ore",
+    "acquired_scrap":           "acquired_scrap",
+    "acquired_lowgradefuel":    "acquired_lowgradefuel",
+    "acquired_metal.fragments": "acquired_metalfrag",
+    "acquired_sulfur":          "acquired_sulfur",
+    "seconds_cold":             "seconds_cold",
+    "seconds_hot":              "seconds_hot",
+    "seconds_comfort":          "seconds_comfort",
+    "melee_thrown":             "melee_thrown",
+    "c4_thrown":                "c4_thrown",
+    "rocket_fired":             "rocket_fired",
+}
+
+
+def query_rust_user_stats(steamid64: int) -> dict:
+    """Roh-Fetch von Steam ISteamUserStats/GetUserStatsForGame.
+    Returns: {'is_private': bool, 'stats': {steam_stat_name: int}, 'raw': dict, 'error': str|None}"""
+    if not STEAM_API_KEY:
+        return {"is_private": False, "stats": {}, "raw": None, "error": "no Steam API key configured"}
+    url = (f"{STEAM_GETUSERSTATS_URL}?key={STEAM_API_KEY}"
+           f"&appid={RUST_APPID}&steamid={int(steamid64)}")
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "RustMetrics/1.0 (+https://rustmetrics.eu)"
+        })
+        with urllib.request.urlopen(req, timeout=8) as r:
+            raw = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        # 403 / 400 → profile private oder Game-Details private
+        if e.code in (400, 403):
+            return {"is_private": True, "stats": {}, "raw": None, "error": None}
+        return {"is_private": False, "stats": {}, "raw": None, "error": f"HTTP {e.code}: {e.reason}"}
+    except Exception as e:
+        return {"is_private": False, "stats": {}, "raw": None, "error": f"{type(e).__name__}: {e}"}
+
+    playerstats = raw.get("playerstats", {})
+    # Manche Antworten haben "error" Field — typischerweise wenn der User Rust nie gespielt hat
+    if "error" in playerstats:
+        return {"is_private": False, "stats": {}, "raw": raw, "error": playerstats["error"]}
+    stats_arr = playerstats.get("stats") or []
+    stats = {s["name"]: int(s.get("value", 0)) for s in stats_arr if "name" in s}
+    return {"is_private": False, "stats": stats, "raw": raw, "error": None}
+
+
+def upsert_rust_user_stats(steamid64: int, result: dict) -> None:
+    """Speichert Rust-Stats für einen User in rust_player_stats."""
+    now = int(time.time())
+    cols: dict = {col: result["stats"].get(steam_name) for steam_name, col in RUST_STAT_COLUMNS.items()}
+    cols.update({
+        "steam_id":   int(steamid64),
+        "fetched_at": now,
+        "is_private": bool(result.get("is_private")),
+        "error":      result.get("error"),
+        "raw_json":   json.dumps(result.get("raw"), separators=(",", ":")) if result.get("raw") else None,
+    })
+    # Build dynamic UPSERT
+    col_names = list(cols.keys())
+    placeholders = ",".join("%s" for _ in col_names)
+    cols_sql = ",".join(col_names)
+    updates = ",".join(f"{c}=EXCLUDED.{c}" for c in col_names if c != "steam_id")
+    sql = (f"INSERT INTO rust_player_stats ({cols_sql}) VALUES ({placeholders}) "
+           f"ON CONFLICT (steam_id) DO UPDATE SET {updates}")
+    values = [cols[c] for c in col_names]
+    with _Conn() as (conn, cur):
+        cur.execute(sql, values)
+
+
+def get_rust_user_stats(steamid64: int, force_refresh: bool = False) -> dict | None:
+    """Liefert Rust-Stats aus Cache (oder fetcht frisch wenn stale/missing).
+    Returns dict mit allen Stats-Spalten + Meta, oder None bei totalem Fehler.
+    """
+    now = int(time.time())
+    if not force_refresh:
+        with _Conn() as (conn, cur):
+            cur.execute(
+                "SELECT * FROM rust_player_stats WHERE steam_id=%s", (int(steamid64),))
+            r = cur.fetchone()
+            if r and (now - r["fetched_at"]) < RUST_STATS_CACHE_TTL:
+                return dict(r)
+    # Cache-Miss oder Force: fresh fetch
+    result = query_rust_user_stats(steamid64)
+    upsert_rust_user_stats(steamid64, result)
+    with _Conn() as (conn, cur):
+        cur.execute("SELECT * FROM rust_player_stats WHERE steam_id=%s", (int(steamid64),))
+        r = cur.fetchone()
+        return dict(r) if r else None
+
+
+def resolve_steam_id_from_bm(bm_player_id: int) -> int | None:
+    """Versucht aus BattleMetrics-API die Steam-ID für einen BM-Player rauszuziehen.
+    Funktioniert nur wenn der Player sein Steam öffentlich auf BM hat.
+    Returns SteamID64 oder None.
+    """
+    try:
+        url = f"{BATTLEMETRICS_PLAYER_URL}/{int(bm_player_id)}?include=identifier"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "RustMetrics/1.0 (+https://rustmetrics.eu)"
+        })
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception as e:
+        print(f"[bm_steamid] {bm_player_id}: {e}", file=sys.stderr, flush=True)
+        return None
+    for inc in (data.get("included") or []):
+        if inc.get("type") != "identifier":
+            continue
+        attrs = inc.get("attributes") or {}
+        if attrs.get("type") == "steamID":
+            v = attrs.get("identifier")
+            try: return int(v)
+            except (TypeError, ValueError): pass
+    return None
+
+
+def ensure_player_steam_id(bm_player_id: int) -> int | None:
+    """Lazy resolve: liefert players.steam_id wenn vorhanden, sonst aus BM ziehen + cachen."""
+    with _Conn() as (conn, cur):
+        cur.execute("SELECT steam_id FROM players WHERE bm_id=%s", (int(bm_player_id),))
+        r = cur.fetchone()
+        if r and r["steam_id"]:
+            return int(r["steam_id"])
+    # Try BM
+    sid = resolve_steam_id_from_bm(bm_player_id)
+    if sid:
+        try:
+            with _Conn() as (conn, cur):
+                cur.execute(
+                    "UPDATE players SET steam_id=%s WHERE bm_id=%s",
+                    (sid, int(bm_player_id)))
+        except Exception as e:
+            print(f"[steam_id_cache] {e}", file=sys.stderr, flush=True)
+    return sid
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  SESSIONS
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -737,6 +913,152 @@ def upsert_user(steamid64: int, profile: dict) -> None:
             (steamid64, profile.get("display_name"), profile.get("avatar_url"),
              profile.get("profile_url"), is_admin, now, now),
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  CALENDAR-TOKEN (für ICS-Feed) — pro User ein opakes Token
+# ═══════════════════════════════════════════════════════════════════════════
+
+def get_or_create_calendar_token(user_id: int) -> str:
+    """Holt das calendar_token des Users — generiert eins falls noch keins existiert."""
+    with _Conn() as (conn, cur):
+        cur.execute("SELECT calendar_token FROM users WHERE id=%s", (user_id,))
+        r = cur.fetchone()
+        if r and r["calendar_token"]:
+            return r["calendar_token"]
+        # Generate new token (urlsafe, 32 bytes = 43 chars)
+        new_token = secrets.token_urlsafe(32)
+        cur.execute(
+            "UPDATE users SET calendar_token=%s WHERE id=%s",
+            (new_token, user_id))
+    return new_token
+
+
+def reset_calendar_token(user_id: int) -> str:
+    """Generiert ein NEUES Token (invalidiert alte Subscriber-URLs). Gibt das neue zurück."""
+    new_token = secrets.token_urlsafe(32)
+    with _Conn() as (conn, cur):
+        cur.execute(
+            "UPDATE users SET calendar_token=%s WHERE id=%s",
+            (new_token, user_id))
+    return new_token
+
+
+def lookup_user_by_calendar_token(token: str) -> int | None:
+    """Findet den User zu einem Calendar-Token. None wenn unbekannt."""
+    if not token or len(token) < 16:
+        return None
+    with _Conn() as (conn, cur):
+        cur.execute("SELECT id FROM users WHERE calendar_token=%s", (token,))
+        r = cur.fetchone()
+        return r["id"] if r else None
+
+
+def _ics_escape(s: str) -> str:
+    """Escape für ICS-TEXT-Werte (RFC 5545)."""
+    if s is None: return ""
+    return (str(s)
+            .replace("\\", "\\\\")
+            .replace(";", "\\;")
+            .replace(",", "\\,")
+            .replace("\n", "\\n")
+            .replace("\r", ""))
+
+
+def _ics_format_utc(ts: int) -> str:
+    """Unix-TS → ICS UTC-Format YYYYMMDDTHHMMSSZ."""
+    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(int(ts)))
+
+
+def render_wipes_ics(user_id: int) -> str:
+    """
+    Generiert einen ICS-Feed mit allen Wipes (vergangene + nächste 4) der Server,
+    die der User gewatched hat. Format ist RFC 5545.
+    """
+    now = int(time.time())
+    week = 7 * 86400
+    out = ["BEGIN:VCALENDAR",
+           "VERSION:2.0",
+           "PRODID:-//RustMetrics//Wipe Calendar//EN",
+           "CALSCALE:GREGORIAN",
+           "METHOD:PUBLISH",
+           "X-WR-CALNAME:RustMetrics Wipes",
+           "X-WR-CALDESC:Upcoming and recent Rust server wipes for your watchlist",
+           "X-PUBLISHED-TTL:PT1H",
+           "REFRESH-INTERVAL;VALUE=DURATION:PT1H"]
+
+    with _Conn() as (conn, cur):
+        cur.execute(
+            "SELECT s.id, s.host, s.port, s.name AS srv_name "
+            "FROM servers s JOIN watched_servers ws ON ws.server_id=s.id "
+            "WHERE ws.user_id=%s",
+            (user_id,))
+        servers = [dict(r) for r in cur.fetchall()]
+
+        # Letzten Snapshot pro Server holen, daraus born_ts extrahieren
+        for s in servers:
+            cur.execute(
+                "SELECT keywords, name FROM snapshots WHERE server_id=%s "
+                "ORDER BY ts DESC LIMIT 1", (s["id"],))
+            snap = cur.fetchone()
+            if not snap: continue
+            kw = (snap.get("keywords") or "")
+            srv_label = snap.get("name") or s["srv_name"] or f"{s['host']}:{s['port']}"
+            parsed = parse_rust_keywords(kw)
+            born_ts = parsed.get("born_ts")
+            if not born_ts:
+                continue
+
+            # Letzten + nächsten 4 Wipes generieren
+            # Wir kennen die genaue Wipe-Stunde nicht, nehmen die Uhrzeit von born_ts
+            # (das ist der reale letzte Wipe).
+            wipe_ts = born_ts
+            wipes: list[tuple[str, int, str]] = []  # (uid_suffix, ts, label)
+            # Vergangener Wipe
+            wipes.append(("past", wipe_ts, "(actual)"))
+            # Nächste 4 — wöchentlich rolling
+            for i in range(1, 5):
+                t = wipe_ts + i * week
+                # Wenn schon vorbei, überspringen (kann passieren wenn unsere
+                # born_ts gerade zwischen zwei Wipes liegt — sollte aber selten sein)
+                if t < now - 86400:
+                    continue
+                wipes.append((f"next{i}", t, f"(est. +{i}w)"))
+
+            for suffix, ts, label in wipes:
+                # 1h-Event ab Wipe-Zeit
+                uid = f"wipe-{s['id']}-{suffix}-{ts}@rustmetrics.eu"
+                title = f"Wipe: {srv_label} {label}"
+                desc_lines = [
+                    f"Server: {srv_label}",
+                    f"Address: {s['host']}:{s['port']}",
+                    f"Estimated wipe time (based on weekly cycle from last known wipe).",
+                    f"",
+                    f"View: https://rustmetrics.eu/server/{s['host']}:{s['port']}",
+                ]
+                out.extend([
+                    "BEGIN:VEVENT",
+                    f"UID:{uid}",
+                    f"DTSTAMP:{_ics_format_utc(now)}",
+                    f"DTSTART:{_ics_format_utc(ts)}",
+                    f"DTEND:{_ics_format_utc(ts + 3600)}",
+                    f"SUMMARY:{_ics_escape(title)}",
+                    f"DESCRIPTION:{_ics_escape(chr(10).join(desc_lines))}",
+                    f"URL:https://rustmetrics.eu/server/{s['host']}:{s['port']}",
+                    f"LOCATION:{_ics_escape(s['host'] + ':' + str(s['port']))}",
+                    "END:VEVENT",
+                ])
+
+    out.append("END:VCALENDAR")
+    # RFC 5545: lines limited to 75 octets, CRLF line endings
+    body = []
+    for line in out:
+        while len(line.encode("utf-8")) > 75:
+            # Soft-wrap on character boundary (approximate — works for ASCII)
+            body.append(line[:74])
+            line = " " + line[74:]
+        body.append(line)
+    return "\r\n".join(body) + "\r\n"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2001,6 +2323,141 @@ def render_admin_stats_page(user_session: dict) -> tuple[str, int]:
     return html, 200
 
 
+def _fmt_int(n) -> str:
+    """1234567 → '1 234 567' (thin-space). None/0 → '—'."""
+    if n is None: return "—"
+    if not isinstance(n, (int, float)): return str(n)
+    s = f"{int(n):,}"
+    return s.replace(",", " ")
+
+
+def _fmt_duration_secs(s) -> str:
+    """120 → '2m'. 7200 → '2h'. 86400 → '1d'. None → '—'."""
+    if not s: return "—"
+    s = int(s)
+    if s < 60: return f"{s}s"
+    if s < 3600: return f"{s // 60}m"
+    if s < 86400:
+        h = s // 3600
+        return f"{h}h" if (s % 3600) < 60 else f"{h}h {(s % 3600) // 60:02d}m"
+    d = s // 86400
+    h = (s % 86400) // 3600
+    return f"{d}d {h}h" if h else f"{d}d"
+
+
+def _render_rust_stats_block(row: dict) -> str:
+    """Generiert das HTML für den Lifetime-Stats-Block einer Rust-Player-Page."""
+    # K/D Ratio berechnen
+    kills  = row.get("kill_player") or 0
+    deaths = row.get("deaths") or 0
+    kd     = f"{kills / max(1, deaths):.2f}" if deaths else "—"
+    hs     = row.get("headshot") or 0
+    hs_pct = f"{100 * hs / max(1, kills):.1f}%" if kills else "—"
+    bullets_fired   = row.get("bullet_fired") or 0
+    bullets_hit_pl  = row.get("bullet_hit_player") or 0
+    accuracy        = f"{100 * bullets_hit_pl / max(1, bullets_fired):.1f}%" if bullets_fired else "—"
+
+    # Layout: Stat-Cards-Grid (numbers + labels)
+    def card(label, value, sub=""):
+        sub_html = f"<div class='stat-sub'>{_esc(sub)}</div>" if sub else ""
+        return (f"<div class='stat-card'>"
+                f"<div class='stat-num'>{_esc(value)}</div>"
+                f"<div class='stat-label'>{_esc(label)}</div>"
+                f"{sub_html}</div>")
+
+    # Top-Row: Combat
+    combat_cards = "".join([
+        card("Kills",     _fmt_int(kills), sub=f"K/D {kd}"),
+        card("Deaths",    _fmt_int(deaths)),
+        card("Headshots", _fmt_int(hs),    sub=f"{hs_pct} of kills"),
+        card("Hit rate",  accuracy,        sub=f"{_fmt_int(bullets_fired)} fired"),
+    ])
+
+    # Mid-Row: Bullets by target
+    bullet_hits = [
+        ("Players",       row.get("bullet_hit_player")),
+        ("Buildings",     row.get("bullet_hit_building")),
+        ("Signs",         row.get("bullet_hit_sign")),
+        ("Wolves",        row.get("bullet_hit_wolf")),
+        ("Bears",         row.get("bullet_hit_bear")),
+        ("Boars",         row.get("bullet_hit_boar")),
+        ("Stags",         row.get("bullet_hit_stag")),
+        ("Horses",        row.get("bullet_hit_horse")),
+        ("Corpses",       row.get("bullet_hit_corpse")),
+    ]
+    bullet_rows = "".join(
+        f"<div class='stat-row'><span>{_esc(lbl)}</span>"
+        f"<span class='stat-row-v'>{_fmt_int(v)}</span></div>"
+        for lbl, v in bullet_hits if v
+    )
+    bullet_html = (
+        "<div class='stat-list'><div class='stat-list-title'>Bullets hit, by target</div>"
+        + bullet_rows + "</div>" if bullet_rows else ""
+    )
+
+    # Bottom-Row: Harvested
+    harvest = [
+        ("Wood",       row.get("harvested_wood")),
+        ("Stones",     row.get("harvested_stones")),
+        ("Cloth",      row.get("harvested_cloth")),
+        ("Leather",    row.get("harvested_leather")),
+        ("Sulfur ore", row.get("harvested_sulfur_ore")),
+        ("Metal ore",  row.get("harvested_metal_ore")),
+        ("HQ metal",   row.get("harvested_hq_metal_ore")),
+        ("Scrap",      row.get("acquired_scrap")),
+        ("Sulfur (gathered)", row.get("acquired_sulfur")),
+        ("Metal frags",row.get("acquired_metalfrag")),
+        ("Low-grade fuel", row.get("acquired_lowgradefuel")),
+    ]
+    harvest_rows = "".join(
+        f"<div class='stat-row'><span>{_esc(lbl)}</span>"
+        f"<span class='stat-row-v'>{_fmt_int(v)}</span></div>"
+        for lbl, v in harvest if v
+    )
+    harvest_html = (
+        "<div class='stat-list'><div class='stat-list-title'>Harvested / acquired</div>"
+        + harvest_rows + "</div>" if harvest_rows else ""
+    )
+
+    # Misc
+    misc = [
+        ("Playtime (tracked by Rust)", _fmt_duration_secs(row.get("seconds_played"))),
+        ("Wounded",        _fmt_int(row.get("wounded"))),
+        ("C4 thrown",      _fmt_int(row.get("c4_thrown"))),
+        ("Rockets fired",  _fmt_int(row.get("rocket_fired"))),
+        ("Melee thrown",   _fmt_int(row.get("melee_thrown"))),
+        ("Arrows fired",   _fmt_int(row.get("arrow_fired"))),
+        ("Arrows hit",     _fmt_int(row.get("arrow_hit_player"))),
+        ("Time cold",      _fmt_duration_secs(row.get("seconds_cold"))),
+        ("Time hot",       _fmt_duration_secs(row.get("seconds_hot"))),
+        ("Time comfy",     _fmt_duration_secs(row.get("seconds_comfort"))),
+    ]
+    misc_rows = "".join(
+        f"<div class='stat-row'><span>{_esc(lbl)}</span>"
+        f"<span class='stat-row-v'>{_esc(v)}</span></div>"
+        for lbl, v in misc if v not in ("—", None, 0, "0")
+    )
+    misc_html = (
+        "<div class='stat-list'><div class='stat-list-title'>Other</div>"
+        + misc_rows + "</div>" if misc_rows else ""
+    )
+
+    fetched = row.get("fetched_at") or 0
+    age = max(0, int(time.time()) - fetched) if fetched else None
+    if   age is None:        age_str = ""
+    elif age < 60:           age_str = "just now"
+    elif age < 3600:         age_str = f"{age // 60}m ago"
+    else:                    age_str = f"{age // 3600}h ago"
+    footer = (f"<p class='hint' style='text-align:right; font-size:11px; margin-top:8px;'>"
+              f"counters from Steam · cached {age_str}</p>" if age_str else "")
+
+    return (
+        f"<div class='stat-cards'>{combat_cards}</div>"
+        f"<div class='stat-lists'>{bullet_html}{harvest_html}{misc_html}</div>"
+        f"{footer}"
+    )
+
+
 def render_player_profile_page(bm_id: int) -> tuple[str, int]:
     """
     Server-side-rendered HTML für /player/<bm_id>. Liefert (html, status).
@@ -2093,6 +2550,13 @@ def render_player_profile_page(bm_id: int) -> tuple[str, int]:
     first_seen  = p["first_seen"]
     last_seen   = p["last_seen"]
     steam_id    = p.get("steam_id")
+    # Lazy steam-id resolve via BM falls noch nicht bekannt — fire-and-forget,
+    # damit der erste Page-Render nicht warten muss. Beim 2. Visit ist's da.
+    if not steam_id and bm_id:
+        try:
+            steam_id = ensure_player_steam_id(bm_id)
+        except Exception as e:
+            print(f"[steam_id_resolve] bm={bm_id}: {e}", file=sys.stderr, flush=True)
     days_known  = max(0, (now - first_seen) // 86400)
 
     title = f"{name} — RustMetrics player profile"
@@ -2195,6 +2659,22 @@ def render_player_profile_page(bm_id: int) -> tuple[str, int]:
             f"align-items:center; gap:8px;'>"
             f"<span class='steam-icon' aria-hidden='true'>⌬</span> Steam Profile</a>")
 
+    # Rust Lifetime Stats (Steam GetUserStatsForGame), server-side gerendert wenn vorhanden.
+    # Falls steam_id noch nicht resolved, versucht das Client-JS später es nachzuziehen.
+    stats_html = ""
+    if steam_id:
+        try:
+            stats_row = get_rust_user_stats(steam_id, force_refresh=False)
+        except Exception as e:
+            print(f"[player_stats_render] {e}", file=sys.stderr, flush=True)
+            stats_row = None
+        if stats_row and not stats_row.get("is_private") and (stats_row.get("kill_player") is not None
+                                                              or stats_row.get("seconds_played") is not None):
+            stats_html = _render_rust_stats_block(stats_row)
+        elif stats_row and stats_row.get("is_private"):
+            stats_html = ("<p class='hint' style='padding:16px; text-align:center;'>"
+                          "🔒 This player's Steam game-details are private — lifetime stats unavailable.</p>")
+
     # Recent-Sessions-Liste (letzte 8 closed sessions)
     recent_closed = [s for s in sessions if s["end_ts"] is not None][:8]
     recent_html = ""
@@ -2269,6 +2749,8 @@ def render_player_profile_page(bm_id: int) -> tuple[str, int]:
     {status_html}
     {('<div style="margin-top:12px;">' + steam_button_html + '</div>') if steam_button_html else ''}
   </section>
+
+  {('<section class="detail-section"><h3>Lifetime stats · from Steam</h3>' + stats_html + '</section>') if stats_html else ''}
 
   <section class="detail-section">
     <h3>Recent activity · last 14 days</h3>
@@ -2483,6 +2965,37 @@ class Handler(SimpleHTTPRequestHandler):
                 d = api_server_detail(sess["user_id"], sid, hours)
                 if d is None: return self._json({"error": "not found"}, 404)
                 return self._json(d)
+        # Logged-in user's own Rust stats (cached, fetched from Steam API)
+        if u.path == "/api/me/stats":
+            sess = self._read_session()
+            if not sess: return self._json({"error": "auth required"}, 401)
+            try:
+                stats = get_rust_user_stats(sess["user_id"], force_refresh=False)
+                return self._json(stats or {"error": "stats unavailable"})
+            except Exception as e:
+                return self._json({"error": str(e)}, 500)
+
+        # Stats für einen einzelnen Player (Steam-ID wird per BM lazy resolved)
+        # /api/player/<bm_id>/stats
+        if u.path.startswith("/api/player/") and u.path.endswith("/stats"):
+            spec = u.path[len("/api/player/"):-len("/stats")]
+            try: bm_id = int(spec)
+            except ValueError: return self._json({"error": "bad bm_id"}, 400)
+            sid = ensure_player_steam_id(bm_id)
+            if not sid:
+                return self._json({
+                    "available": False,
+                    "reason": "no Steam ID known for this player (BattleMetrics didn't expose it)"
+                })
+            try:
+                stats = get_rust_user_stats(sid, force_refresh=False)
+                if not stats:
+                    return self._json({"available": False, "reason": "fetch failed"})
+                stats["available"] = True
+                return self._json(stats)
+            except Exception as e:
+                return self._json({"error": str(e)}, 500)
+
         if u.path == "/api/browse":
             sess = self._read_session()
             uid = sess["user_id"] if sess else None
@@ -2599,6 +3112,31 @@ class Handler(SimpleHTTPRequestHandler):
                     return
             return self._json({"error": "use /server/<host>:<port>"}, 400)
 
+        # Calendar-ICS-Feed  /calendar/wipes.ics?token=<calendar_token>
+        # Auth via Token (Cookie geht nicht — Calendar-Apps senden keine)
+        if u.path == "/calendar/wipes.ics":
+            qs = urllib.parse.parse_qs(u.query)
+            token = (qs.get("token", [""])[0] or "").strip()
+            user_id = lookup_user_by_calendar_token(token)
+            if not user_id:
+                return self._json({"error": "invalid token"}, 401)
+            try:
+                ics = render_wipes_ics(user_id)
+            except Exception as e:
+                print(f"[ics_feed] user={user_id}: {e}", file=sys.stderr, flush=True)
+                return self._json({"error": str(e)}, 500)
+            body = ics.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/calendar; charset=utf-8")
+            self.send_header("Content-Disposition",
+                "inline; filename=\"rustmetrics-wipes.ics\"")
+            self.send_header("Content-Length", str(len(body)))
+            # Cache hour-level. Most calendar clients re-fetch hourly anyway.
+            self.send_header("Cache-Control", "private, max-age=3600")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         # Admin-Stats-Page  /admin/stats — auth + is_admin required
         if u.path == "/admin/stats":
             sess = self._read_session()
@@ -2684,6 +3222,35 @@ class Handler(SimpleHTTPRequestHandler):
 
         if u.path == "/api/me/settings":
             return self._api_save_settings(sess["user_id"])
+        if u.path == "/api/me/stats/refresh":
+            try:
+                stats = get_rust_user_stats(sess["user_id"], force_refresh=True)
+                return self._json(stats or {"error": "stats unavailable"})
+            except Exception as e:
+                return self._json({"error": str(e)}, 500)
+        if u.path.startswith("/api/player/") and u.path.endswith("/stats/refresh"):
+            spec = u.path[len("/api/player/"):-len("/stats/refresh")]
+            try: bm_id = int(spec)
+            except ValueError: return self._json({"error": "bad bm_id"}, 400)
+            sid = ensure_player_steam_id(bm_id)
+            if not sid:
+                return self._json({"available": False, "reason": "no Steam ID known"})
+            try:
+                stats = get_rust_user_stats(sid, force_refresh=True)
+                if not stats:
+                    return self._json({"available": False, "reason": "fetch failed"})
+                stats["available"] = True
+                return self._json(stats)
+            except Exception as e:
+                return self._json({"error": str(e)}, 500)
+        if u.path == "/api/me/calendar/reset":
+            try:
+                new_token = reset_calendar_token(sess["user_id"])
+                cal_url    = f"{ORIGIN}/calendar/wipes.ics?token={new_token}"
+                cal_webcal = cal_url.replace("https://", "webcal://").replace("http://", "webcal://")
+                return self._json({"ok": True, "url": cal_url, "webcal_url": cal_webcal})
+            except Exception as e:
+                return self._json({"error": str(e)}, 500)
         if u.path == "/api/me/test-webhook":
             return self._api_test_webhook(sess["user_id"])
 
@@ -2761,6 +3328,14 @@ class Handler(SimpleHTTPRequestHandler):
                         "notify_offline":  bool(r["notify_offline"]),
                     }
         except Exception: pass
+        # Calendar-URL (lazy generiert beim ersten Mal)
+        try:
+            cal_token = get_or_create_calendar_token(sess["user_id"])
+            cal_url   = f"{ORIGIN}/calendar/wipes.ics?token={cal_token}"
+            # webcal:// für 1-tap subscribe in Apple/Google Calendar (kein https)
+            cal_webcal = cal_url.replace("https://", "webcal://").replace("http://", "webcal://")
+        except Exception:
+            cal_url = cal_webcal = None
         return self._json({
             "authenticated": True,
             "user_id":       str(sess["user_id"]),
@@ -2768,6 +3343,10 @@ class Handler(SimpleHTTPRequestHandler):
             "avatar_url":    sess.get("avatar_url"),
             "is_admin":      bool(sess.get("is_admin")),
             "settings":      settings,
+            "calendar": {
+                "url":        cal_url,
+                "webcal_url": cal_webcal,
+            },
         })
 
     def _api_save_settings(self, user_id: int):

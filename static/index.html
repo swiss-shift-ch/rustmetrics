@@ -50,7 +50,7 @@
 
 <!-- TODO: Google-Search-Console Meta-Tag hier einfügen wenn vorhanden -->
 
-<link rel="stylesheet" href="/style.css?v=20260517g" />
+<link rel="stylesheet" href="/style.css?v=20260517i" />
 </head>
 <body>
 
@@ -85,6 +85,10 @@
     <button class="nav-item" data-tab="browse">
       <span class="nav-icon" aria-hidden="true">⌖</span>
       <span class="nav-label">Browser</span>
+    </button>
+    <button class="nav-item" data-tab="mystats">
+      <span class="nav-icon" aria-hidden="true">◆</span>
+      <span class="nav-label">My Stats</span>
     </button>
     <button class="nav-item" data-tab="settings">
       <span class="nav-icon" aria-hidden="true">⚙</span>
@@ -194,6 +198,37 @@
       <div id="browse-results" class="browse-results"></div>
     </section>
 
+    <!-- ── My Stats View — eingeloggter User sieht eigene Rust-Lifetime-Stats ── -->
+    <section class="view view-mystats" data-view="mystats" hidden>
+      <header class="view-header">
+        <h1 class="view-title">My Rust Stats</h1>
+        <p class="view-sub">Lifetime in-game counters pulled live from Steam. Requires <em>Game details: Public</em> in your Steam privacy settings.</p>
+      </header>
+
+      <div id="mystats-guest" class="guest-cta" hidden>
+        <div class="guest-cta-inner">
+          <h2>Sign in to see your Rust stats</h2>
+          <p>Kills, deaths, headshots, gathered materials, bullets fired — everything Rust uploads to Steam, presented neatly.</p>
+          <a href="/auth/steam/login" class="btn-steam">
+            <span class="steam-icon" aria-hidden="true">⌬</span> Sign in with Steam
+          </a>
+        </div>
+      </div>
+
+      <div id="mystats-body" hidden>
+        <div id="mystats-loading" class="hint" style="padding:20px; text-align:center;">Loading your stats…</div>
+        <div id="mystats-content" hidden></div>
+        <div id="mystats-private" class="hint" hidden style="padding:24px; text-align:center;">
+          🔒 Your Steam profile has <strong>Game Details</strong> set to private — Rust stats aren't readable.<br>
+          Open Steam → your profile → <strong>Edit Profile → Privacy Settings → Game Details</strong>, set to <strong>Public</strong>, save, then refresh.
+        </div>
+        <div id="mystats-error" class="hint" hidden style="padding:20px; text-align:center; color:var(--red);"></div>
+        <div style="text-align:right; margin-top:14px;">
+          <button id="btn-mystats-refresh" class="btn-ghost" title="Force a fresh fetch from Steam">⟳ Refresh from Steam</button>
+        </div>
+      </div>
+    </section>
+
     <!-- ── Settings View ── -->
     <section class="view view-settings" data-view="settings" hidden>
       <header class="view-header">
@@ -230,6 +265,29 @@
             <button type="submit" class="btn-primary">Save settings</button>
             <button type="button" id="btn-test-webhook" class="btn-ghost">Send test message</button>
             <span id="settings-status" class="settings-status"></span>
+          </div>
+        </fieldset>
+
+        <fieldset class="settings-section">
+          <legend>Wipe Calendar</legend>
+          <p class="settings-hint">Subscribe to a live calendar feed with the wipe dates of every server in your watchlist.
+             Updates automatically once an hour. Works in Apple Calendar, Google Calendar, Outlook, Fantastical and anything that speaks ICS.</p>
+          <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:8px;">
+            <label class="check" style="font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px;">Subscribe URL (one-tap in Apple/Google Calendar)</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="cal-webcal-url" readonly style="flex:1; font-family:'SF Mono',monospace; font-size:12px;" placeholder="loading…" />
+              <button type="button" id="btn-cal-copy" class="btn-ghost" title="Copy URL to clipboard">Copy</button>
+              <a id="cal-webcal-open" href="#" class="btn-primary" style="text-decoration:none; display:inline-flex; align-items:center;">Open in Calendar</a>
+            </div>
+            <label class="check" style="font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-top:6px;">Or HTTPS URL (for Outlook / web-only clients)</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="cal-https-url" readonly style="flex:1; font-family:'SF Mono',monospace; font-size:12px;" />
+              <button type="button" id="btn-cal-copy-https" class="btn-ghost" title="Copy HTTPS URL">Copy</button>
+            </div>
+          </div>
+          <div class="settings-actions">
+            <button type="button" id="btn-cal-reset" class="btn-ghost" title="Generate a new URL — existing subscribers stop working">Reset link</button>
+            <span id="cal-status" class="settings-status"></span>
           </div>
         </fieldset>
       </form>
@@ -291,6 +349,6 @@
   <span id="footer-ts">—</span>
 </footer>
 
-<script src="/app.js?v=20260517g"></script>
+<script src="/app.js?v=20260517i"></script>
 </body>
 </html>

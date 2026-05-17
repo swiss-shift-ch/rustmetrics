@@ -111,3 +111,64 @@ CREATE INDEX IF NOT EXISTS idx_players_last_seen ON players(last_seen DESC);
 -- per Namens-Lookup gegen players.aliases gematcht).
 ALTER TABLE player_sessions ADD COLUMN IF NOT EXISTS bm_player_id BIGINT;
 CREATE INDEX IF NOT EXISTS idx_psessions_bmid ON player_sessions(bm_player_id, start_ts DESC) WHERE bm_player_id IS NOT NULL;
+
+-- Per-User Calendar-Token für /calendar/wipes.ics (Subscribe-URL für Apple/Google Calendar).
+-- Token statt Cookie weil Calendar-Apps keine Session-Cookies senden.
+-- NULL bedeutet "User hat noch keinen generiert" — wird lazy on-demand erstellt.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS calendar_token TEXT UNIQUE;
+
+-- Steam-gepflegte Rust-Lifetime-Stats (kommen aus GetUserStatsForGame).
+-- Privacy-Status: privat = NULL in den Counter-Feldern, is_private = TRUE.
+-- raw_json speichert den kompletten Steam-Response für künftige neue Counter
+-- die wir noch nicht als Spalten haben.
+CREATE TABLE IF NOT EXISTS rust_player_stats (
+    steam_id            BIGINT  PRIMARY KEY,
+    fetched_at          BIGINT  NOT NULL,
+    is_private          BOOLEAN NOT NULL DEFAULT FALSE,
+    error               TEXT,
+    -- Core counters
+    seconds_played      BIGINT,
+    deaths              BIGINT,
+    kill_player         BIGINT,
+    headshot            BIGINT,
+    wounded             BIGINT,
+    -- Bullets
+    bullet_fired        BIGINT,
+    bullet_hit_player   BIGINT,
+    bullet_hit_building BIGINT,
+    bullet_hit_sign     BIGINT,
+    bullet_hit_wolf     BIGINT,
+    bullet_hit_bear     BIGINT,
+    bullet_hit_boar     BIGINT,
+    bullet_hit_stag     BIGINT,
+    bullet_hit_horse    BIGINT,
+    bullet_hit_corpse   BIGINT,
+    -- Arrows
+    arrow_fired         BIGINT,
+    arrow_hit_player    BIGINT,
+    arrow_hit_entity    BIGINT,
+    -- Harvested raw resources
+    harvested_wood      BIGINT,
+    harvested_stones    BIGINT,
+    harvested_cloth     BIGINT,
+    harvested_leather   BIGINT,
+    harvested_sulfur_ore BIGINT,
+    harvested_metal_ore BIGINT,
+    harvested_hq_metal_ore BIGINT,
+    -- Acquired items
+    acquired_scrap      BIGINT,
+    acquired_lowgradefuel BIGINT,
+    acquired_metalfrag  BIGINT,
+    acquired_sulfur     BIGINT,
+    -- Misc
+    seconds_cold        BIGINT,
+    seconds_hot         BIGINT,
+    seconds_comfort     BIGINT,
+    melee_thrown        BIGINT,
+    c4_thrown           BIGINT,
+    rocket_fired        BIGINT,
+    -- Raw response for anything we didn't model as a column
+    raw_json            TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_rust_stats_fetched ON rust_player_stats(fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rust_stats_kills   ON rust_player_stats(kill_player DESC NULLS LAST);
