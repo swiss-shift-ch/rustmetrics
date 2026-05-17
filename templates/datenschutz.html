@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Datenschutzerklärung — RustMetrics</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <a href="/" style="display:flex; align-items:center; gap:12px; text-decoration:none; color:inherit;">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">RUST<span class="brand-name-accent">METRICS</span></span>
+    </a>
+  </div>
+</header>
+
+<article class="legal-page">
+  <a href="/" class="legal-back">← Zurück</a>
+  <h1>Datenschutzerklärung</h1>
+
+  <p>Stand: Mai 2026. Diese Erklärung erläutert die Datenverarbeitung beim Betrieb von
+     <strong>RustMetrics</strong> (rustmetrics.eu) — einem Hobby-/Community-Tool zum
+     Tracken von Facepunch-Rust-Servern.</p>
+
+  <h2>1. Verantwortlicher</h2>
+  <p>
+    <strong>Swiss-Shift</strong><br>
+    Lilienstrasse 114, 4123 Allschwil, Schweiz<br>
+    E-Mail: <a href="mailto:info@swiss-shift.ch">info@swiss-shift.ch</a>
+  </p>
+  <p>Anwendbares Recht: Bundesgesetz über den Datenschutz (revDSG, Schweiz).
+     Für Nutzer mit Wohnsitz im EU/EWR-Raum gilt zusätzlich die
+     EU-Datenschutz-Grundverordnung (DSGVO).</p>
+
+  <h2>2. Welche Daten wir verarbeiten</h2>
+  <h3>2.1 Bei Aufruf der Website (ohne Login)</h3>
+  <p>Der vorgeschaltete Webserver (Caddy auf einem Server bei
+     Hetzner Online GmbH, Deutschland) protokolliert technisch notwendige
+     Zugriffsdaten: IP-Adresse, Zeitstempel, HTTP-Methode, angefragte URL,
+     HTTP-Statuscode, Größe der Antwort, User-Agent, Referrer.
+     Diese Logs werden nach <strong>30 Tagen</strong> automatisch rotiert
+     und gelöscht und dienen ausschliesslich dem sicheren Betrieb (Fehleranalyse,
+     Missbrauchsabwehr).</p>
+  <p>Zusätzlich werden im Arbeitsspeicher des Anwendungsservers IP-Adressen
+     für ein Rate-Limiting kurzzeitig vorgehalten (max. 1 h). Sie werden
+     nicht dauerhaft gespeichert.</p>
+
+  <h3>2.2 Beim Login mit Steam</h3>
+  <p>Der Login läuft über <strong>Steam OpenID 2.0</strong> (betrieben von
+     Valve Corporation, USA). Sie geben Ihr Steam-Passwort niemals bei
+     RustMetrics ein — die Authentifizierung erfolgt vollständig bei Steam.
+     Nach erfolgreicher Anmeldung erhalten wir von Steam:</p>
+  <ul>
+    <li><strong>SteamID64</strong> (eine 17-stellige Zahl, eindeutiger
+        öffentlicher Spieler-Identifier)</li>
+    <li><strong>Öffentlicher Anzeige-Name</strong> (Persona-Name)</li>
+    <li><strong>Avatar-URL</strong></li>
+    <li><strong>Profil-URL</strong></li>
+  </ul>
+  <p>Diese Daten speichern wir in unserer Datenbank, verknüpft mit Ihrem Account.
+     Bei jedem Login wird der Anzeige-Name aktualisiert.</p>
+
+  <h3>2.3 Bei Nutzung der Watchlist</h3>
+  <p>Sie können bewusst und manuell folgende Daten in Ihrem Account hinterlegen:</p>
+  <ul>
+    <li>Liste der Rust-Server (Host:Port), die Sie beobachten</li>
+    <li>Pro Server: Liste von Spielernamen, deren Online-Status Sie verfolgen wollen</li>
+  </ul>
+  <p>Diese Daten sind ausschliesslich Ihrem Account zugeordnet und werden
+     anderen Nutzern nicht angezeigt.</p>
+
+  <h3>2.4 Session-Cookie</h3>
+  <p>Wir setzen genau <strong>einen</strong> Cookie: <code>rm_session</code>.
+     Dieser enthält einen zufälligen opaken Token (kein Tracking, kein Inhalt).
+     Der Cookie ist <code>HttpOnly</code>, <code>Secure</code> und
+     <code>SameSite=Lax</code>. Lebensdauer: standardmässig 30 Tage oder bis Logout.
+     Rechtsgrundlage: Erfüllung des Nutzungsverhältnisses (Art. 6 Abs. 1 lit. b DSGVO
+     bzw. Art. 31 revDSG); ohne den Cookie ist kein Login möglich.</p>
+
+  <h2>3. Wo werden die Daten verarbeitet</h2>
+  <p>Die Anwendung läuft auf einem Server der <strong>Hetzner Online GmbH</strong>
+     (Rechenzentrum Deutschland). Die Daten werden ausschliesslich dort
+     gespeichert.</p>
+  <p>Eine Datenweitergabe in die USA findet nur statt, wenn Sie sich aktiv
+     mit Steam einloggen — dann sendet Ihr Browser die OpenID-Verifikationsdaten
+     an steamcommunity.com (Valve Corporation, USA). Rechtsgrundlage:
+     Art. 49 Abs. 1 lit. b DSGVO (erforderlich zur Vertragserfüllung).</p>
+
+  <h2>4. Speicherdauer</h2>
+  <dl>
+    <dt>User-Account (SteamID, Name, Avatar):</dt>
+    <dd>bis zur Löschung durch den Nutzer.</dd>
+    <dt>Sessions:</dt>
+    <dd>30 Tage nach letztem Login oder bis Logout.</dd>
+    <dt>Server-Snapshots (Pop, Map, Spielerliste):</dt>
+    <dd>14 Tage rollierend.</dd>
+    <dt>Player-Session-Diffs (wer war wann auf welchem Server):</dt>
+    <dd>14 Tage nach Session-Ende.</dd>
+    <dt>Caddy Access-Logs:</dt>
+    <dd>30 Tage.</dd>
+  </dl>
+
+  <h2>5. Ihre Rechte</h2>
+  <p>Sie haben — sowohl nach revDSG (Schweiz) als auch nach DSGVO (EU) — das Recht auf:</p>
+  <ul>
+    <li><strong>Auskunft</strong> über die zu Ihrer Person gespeicherten Daten</li>
+    <li><strong>Berichtigung</strong> unrichtiger Daten</li>
+    <li><strong>Löschung</strong> Ihres Accounts samt aller verknüpften Daten</li>
+    <li><strong>Datenübertragbarkeit</strong> (Export Ihrer Daten in maschinenlesbarem Format)</li>
+    <li><strong>Widerspruch</strong> gegen die Verarbeitung</li>
+  </ul>
+  <p>Schreiben Sie für eine Anfrage formlos an
+     <a href="mailto:info@swiss-shift.ch">info@swiss-shift.ch</a>. Wir antworten
+     innerhalb von 30 Tagen.</p>
+
+  <h2>6. Beschwerderecht</h2>
+  <p>Sie können sich jederzeit bei einer Datenschutz-Aufsichtsbehörde beschweren.
+     In der Schweiz: Eidgenössischer Datenschutz- und Öffentlichkeitsbeauftragter
+     (EDÖB, edoeb.admin.ch). In der EU: die für Sie zuständige Landes- bzw.
+     nationale Datenschutzbehörde.</p>
+
+  <h2>7. Technische Massnahmen</h2>
+  <p>Sämtliche Verbindungen sind durch TLS verschlüsselt (HTTPS via
+     Let's Encrypt). Die Datenbank ist nur lokal vom Anwendungsserver erreichbar
+     (keine externen Zugänge). SSH-Zugang ist key-only. Brute-Force-Schutz via
+     fail2ban.</p>
+
+  <h2>8. Keine Werbung, kein Tracking</h2>
+  <p>RustMetrics enthält <strong>keine Werbung, keine Tracking-Pixel, keine
+     Analytics, keine Drittanbieter-Skripte</strong>. Die einzigen externen
+     Ressourcen sind beim Login die OpenID-Verifikation gegenüber Steam und
+     beim Aufruf eines Spieler-Avatars die Avatar-Bilddatei vom Steam-CDN.</p>
+
+  <h2>9. Änderungen</h2>
+  <p>Wir behalten uns vor, diese Datenschutzerklärung anzupassen, wenn sich
+     die rechtlichen oder technischen Rahmenbedingungen ändern. Die jeweils
+     aktuelle Fassung ist unter dieser URL einsehbar.</p>
+</article>
+
+<footer class="footer">
+  <a href="/">Startseite</a>
+  <span class="footer-divider">·</span>
+  <a href="/impressum">Impressum</a>
+  <span class="footer-divider">·</span>
+  <a href="/datenschutz">Datenschutz</a>
+</footer>
+
+</body>
+</html>

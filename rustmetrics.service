@@ -1,0 +1,35 @@
+[Unit]
+Description=RustMetrics — Rust server & player tracker
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=rustmetrics
+Group=rustmetrics
+WorkingDirectory=/opt/rustmetrics
+EnvironmentFile=/opt/rustmetrics/.env
+ExecStart=/opt/rustmetrics/.venv/bin/python /opt/rustmetrics/rustmetrics.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rustmetrics
+
+# Härtung
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+ReadWritePaths=/opt/rustmetrics
+MemoryHigh=400M
+MemoryMax=600M
+
+[Install]
+WantedBy=multi-user.target

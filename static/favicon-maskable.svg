@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>RustMetrics</title>
+  <!-- Maskable icon: full-bleed background, content within 80% safe zone (centered 410x410 area) -->
+  <rect width="512" height="512" fill="#cd412a"/>
+  <!-- Hollow dark frame, scaled to safe zone -->
+  <rect x="160" y="160" width="192" height="192" fill="none" stroke="#1a0f08" stroke-width="22"/>
+  <!-- Solid dark center -->
+  <rect x="218" y="218" width="76" height="76" fill="#1a0f08"/>
+</svg>

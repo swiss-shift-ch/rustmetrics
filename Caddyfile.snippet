@@ -1,0 +1,39 @@
+# --------------------------------------------------------------
+# RustMetrics — anhängen an /etc/caddy/Caddyfile
+# Caddy macht Auto-HTTPS via Let's Encrypt für rustmetrics.eu.
+# Existierende Blöcke (tsdok.ch, swiss-shift.ch etc.) NICHT anfassen.
+# --------------------------------------------------------------
+
+rustmetrics.eu, www.rustmetrics.eu {
+	encode gzip zstd
+
+	# Statische Assets aggressiv cachen (Inhalt versioniert sich faktisch nicht oft)
+	@static path *.css *.js *.svg *.ico *.png *.woff2
+	header @static Cache-Control "public, max-age=86400"
+
+	# Security-Header
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		X-Frame-Options           "SAMEORIGIN"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		Permissions-Policy        "geolocation=(), microphone=(), camera=()"
+		Content-Security-Policy   "default-src 'self'; img-src 'self' data: https://*.steamstatic.com https://*.akamaihd.net https://avatars.cloudflare.steamstatic.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://steamcommunity.com; form-action 'self' https://steamcommunity.com; frame-ancestors 'self'; base-uri 'self'; object-src 'none'"
+		-Server
+	}
+
+	# Echte Client-IP für Rate-Limiting/Logging an den App-Server durchreichen
+	reverse_proxy 127.0.0.1:8765 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	log {
+		output file /var/log/caddy/rustmetrics.log {
+			roll_size 10mb
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		format console
+	}
+}

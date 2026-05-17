@@ -1,0 +1,49 @@
+# Secrets — NEVER commit
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local dev data (single-user version was SQLite-based — never commit any DB)
+*.db
+*.sqlite
+*.sqlite3
+rustpulse.db
+rustmetrics.db
+
+# Logs
+*.log
+logs/
+
+# Backups
+*.bak
+*.backup
+*.dump
+*.sql.gz
+
+# Build / generated
+dist/
+build/
+
+# Test artifacts that contain runtime data
+test_output/
+.coverage

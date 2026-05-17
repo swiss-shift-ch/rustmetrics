@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>RustMetrics</title>
+  <!-- Solid red background, slightly rounded -->
+  <rect width="32" height="32" fill="#cd412a" rx="4"/>
+  <!-- Hollow dark frame -->
+  <rect x="7" y="7" width="18" height="18" fill="none" stroke="#1a0f08" stroke-width="2.5"/>
+  <!-- Solid dark center -->
+  <rect x="12.5" y="12.5" width="7" height="7" fill="#1a0f08"/>
+</svg>

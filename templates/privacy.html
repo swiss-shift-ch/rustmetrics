@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy — RustMetrics</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <a href="/" style="display:flex; align-items:center; gap:12px; text-decoration:none; color:inherit;">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">RUST<span class="brand-name-accent">METRICS</span></span>
+    </a>
+  </div>
+</header>
+
+<article class="legal-page">
+  <a href="/" class="legal-back">← Back</a>
+  <h1>Privacy Policy</h1>
+
+  <p>Last updated: May 2026. This policy explains how data is processed when you use
+     <strong>RustMetrics</strong> (rustmetrics.eu) — a hobby/community tool for tracking
+     Facepunch Rust servers.</p>
+
+  <h2>1. Controller</h2>
+  <p>
+    <strong>Swiss-Shift</strong><br>
+    Lilienstrasse 114, 4123 Allschwil, Switzerland<br>
+    Email: <a href="mailto:info@swiss-shift.ch">info@swiss-shift.ch</a>
+  </p>
+  <p>Applicable law: Swiss Federal Act on Data Protection (revFADP, 2023). For users
+     residing in the EU/EEA, the EU General Data Protection Regulation (GDPR) applies in addition.</p>
+
+  <h2>2. Data we process</h2>
+  <h3>2.1 When you visit the site (without signing in)</h3>
+  <p>The reverse proxy (Caddy on a server hosted by Hetzner Online GmbH, Germany) logs technically
+     necessary request data: IP address, timestamp, HTTP method, requested URL, HTTP status code,
+     response size, user agent, referrer. These logs are rotated and deleted after <strong>30 days</strong>
+     and are used solely for secure operation (error analysis, abuse prevention).</p>
+  <p>Additionally, the application keeps IP addresses in memory briefly (max 1 hour) for rate limiting.
+     They are not stored persistently.</p>
+
+  <h3>2.2 When you sign in with Steam</h3>
+  <p>Sign-in uses <strong>Steam OpenID 2.0</strong> (operated by Valve Corporation, USA). You never enter
+     your Steam password on RustMetrics — authentication happens entirely with Steam. After a successful
+     login we receive from Steam:</p>
+  <ul>
+    <li><strong>SteamID64</strong> (a 17-digit number, the unique public player identifier)</li>
+    <li><strong>Public display name</strong> (persona name)</li>
+    <li><strong>Avatar URL</strong></li>
+    <li><strong>Profile URL</strong></li>
+  </ul>
+  <p>This data is stored in our database, linked to your account. The display name is refreshed on each login.</p>
+
+  <h3>2.3 When you use the Watchlist</h3>
+  <p>You may deliberately and manually store the following data in your account:</p>
+  <ul>
+    <li>List of Rust servers (host:port) you're watching</li>
+    <li>Per server: list of player names whose online status you want to track</li>
+  </ul>
+  <p>This data is associated exclusively with your account and is not visible to other users.</p>
+
+  <h3>2.4 Session cookie</h3>
+  <p>We set exactly <strong>one</strong> cookie: <code>rm_session</code>. It contains a random opaque
+     token (no tracking, no content). The cookie is <code>HttpOnly</code>, <code>Secure</code> and
+     <code>SameSite=Lax</code>. Lifetime: 30 days by default or until logout. Legal basis: performance
+     of the use agreement (Art. 6(1)(b) GDPR / Art. 31 revFADP); without the cookie no login is possible.</p>
+
+  <h2>3. Where data is processed</h2>
+  <p>The application runs on a server provided by <strong>Hetzner Online GmbH</strong>
+     (data centre in Germany). Data is stored only there.</p>
+  <p>A data transfer to the USA only occurs when you actively sign in with Steam — at that moment your
+     browser sends OpenID verification data to steamcommunity.com (Valve Corporation, USA). Legal basis:
+     Art. 49(1)(b) GDPR (necessary for performance of contract).</p>
+
+  <h2>4. Retention</h2>
+  <dl>
+    <dt>User account (SteamID, name, avatar):</dt>
+    <dd>until deletion by the user.</dd>
+    <dt>Sessions:</dt>
+    <dd>30 days after last login, or until logout.</dd>
+    <dt>Server snapshots (pop, map, player list):</dt>
+    <dd>rolling 14 days.</dd>
+    <dt>Player session diffs (who was on which server, when):</dt>
+    <dd>14 days after session end.</dd>
+    <dt>Caddy access logs:</dt>
+    <dd>30 days.</dd>
+  </dl>
+
+  <h2>5. Your rights</h2>
+  <p>Both under revFADP (Switzerland) and GDPR (EU) you have the right to:</p>
+  <ul>
+    <li><strong>Access</strong> to data we hold about you</li>
+    <li><strong>Rectification</strong> of incorrect data</li>
+    <li><strong>Erasure</strong> of your account and all linked data</li>
+    <li><strong>Data portability</strong> (export of your data in a machine-readable format)</li>
+    <li><strong>Object</strong> to processing</li>
+  </ul>
+  <p>For requests, simply email <a href="mailto:info@swiss-shift.ch">info@swiss-shift.ch</a>.
+     We respond within 30 days.</p>
+
+  <h2>6. Right to complain</h2>
+  <p>You may at any time lodge a complaint with a data-protection supervisory authority.
+     In Switzerland: Federal Data Protection and Information Commissioner (FDPIC, edoeb.admin.ch).
+     In the EU: your national/local data-protection authority.</p>
+
+  <h2>7. Technical measures</h2>
+  <p>All connections are TLS-encrypted (HTTPS via Let's Encrypt). The database is only reachable locally
+     from the application server (no external access). SSH access is key-only. Brute-force protection
+     via fail2ban.</p>
+
+  <h2>8. No ads, no tracking</h2>
+  <p>RustMetrics contains <strong>no advertising, no tracking pixels, no analytics, no third-party scripts</strong>.
+     The only external resources are: (a) OpenID verification with Steam during login, and
+     (b) the player avatar image hotlinked from the Steam CDN.</p>
+
+  <h2>9. Changes</h2>
+  <p>We reserve the right to amend this policy as the legal or technical environment evolves. The current
+     version is always available at this URL.</p>
+</article>
+
+<footer class="footer">
+  <a href="/">Home</a>
+  <span class="footer-divider">·</span>
+  <a href="/imprint">Imprint</a>
+  <span class="footer-divider">·</span>
+  <a href="/privacy">Privacy</a>
+</footer>
+
+</body>
+</html>

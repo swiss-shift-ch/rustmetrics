@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RustMetrics — Rust Server &amp; Player Tracker</title>
+<meta name="description" content="RustMetrics — focused, ad-free server &amp; player tracker for Facepunch Rust. Watchlist with Discord webhook notifications, live server browser, wipe countdown, population charts. Steam login, no email needed." />
+<meta name="keywords" content="rust server tracker, rust player tracker, rust watchlist, rust server status, rust wipe schedule, rust population, facepunch rust" />
+<meta name="theme-color" content="#cd412a" />
+<link rel="canonical" href="https://rustmetrics.eu/" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+<link rel="shortcut icon" href="/favicon.ico" />
+<link rel="manifest" href="/site.webmanifest" />
+
+<!-- Open Graph / Discord / Facebook -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="RustMetrics" />
+<meta property="og:title" content="RustMetrics — Rust Server &amp; Player Tracker" />
+<meta property="og:description" content="Free, ad-free Rust server &amp; player watchlist with Discord notifications. Login via Steam." />
+<meta property="og:url" content="https://rustmetrics.eu/" />
+<meta property="og:image" content="https://rustmetrics.eu/og-image.png" />
+
+<!-- Twitter card -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="RustMetrics — Rust Server &amp; Player Tracker" />
+<meta name="twitter:description" content="Free, ad-free Rust server &amp; player watchlist with Discord notifications." />
+<meta name="twitter:image" content="https://rustmetrics.eu/og-image.png" />
+
+<!-- JSON-LD Schema -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "RustMetrics",
+  "url": "https://rustmetrics.eu/",
+  "description": "Rust server and player tracker for the Facepunch game. Personal watchlist with Discord webhook notifications, live server browser, wipe countdown.",
+  "applicationCategory": "GameApplication",
+  "operatingSystem": "Web",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+  "creator": {
+    "@type": "Organization",
+    "name": "Swiss-Shift",
+    "url": "https://rustmetrics.eu/imprint"
+  }
+}
+</script>
+
+<!-- TODO: Google-Search-Console Meta-Tag hier einfügen wenn vorhanden -->
+
+<link rel="stylesheet" href="/style.css?v=20260517f" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-name">RUST<span class="brand-name-accent">METRICS</span></span>
+  </div>
+
+  <div class="topbar-stats">
+    <span class="stat"><span class="stat-num" id="stat-servers">0</span><span class="stat-label">Servers</span></span>
+    <span class="stat"><span class="stat-num" id="stat-watched">0</span><span class="stat-label">Players</span></span>
+    <span class="stat"><span class="stat-num green" id="stat-online">0</span><span class="stat-label">Online</span></span>
+  </div>
+
+  <div class="topbar-actions">
+    <div id="user-slot" class="user-slot"></div>
+    <button id="btn-notif" class="btn-ghost" title="Enable browser notifications">
+      <span class="bell">●</span><span class="lbl">Notif</span>
+    </button>
+    <span class="poll-indicator" id="poll-indicator" title="Last update"></span>
+  </div>
+</header>
+
+<div class="app">
+
+  <nav class="sidebar">
+    <button class="nav-item is-active" data-tab="watchlist">
+      <span class="nav-icon" aria-hidden="true">▦</span>
+      <span class="nav-label">Watchlist</span>
+    </button>
+    <button class="nav-item" data-tab="browse">
+      <span class="nav-icon" aria-hidden="true">⌖</span>
+      <span class="nav-label">Browser</span>
+    </button>
+    <button class="nav-item" data-tab="settings">
+      <span class="nav-icon" aria-hidden="true">⚙</span>
+      <span class="nav-label">Settings</span>
+    </button>
+
+    <div class="nav-spacer"></div>
+
+    <button class="nav-item nav-item-mini" data-tab="about">
+      <span class="nav-icon" aria-hidden="true">?</span>
+      <span class="nav-label">About</span>
+    </button>
+  </nav>
+
+  <main class="main">
+
+    <section class="view view-watchlist is-active" data-view="watchlist">
+      <header class="view-header">
+        <h1 class="view-title">My Watchlist</h1>
+        <p class="view-sub">Servers you're watching — with player sub-list and online status.</p>
+      </header>
+
+      <div id="guest-cta" class="guest-cta" hidden>
+        <div class="guest-cta-inner">
+          <h2>Sign in with Steam</h2>
+          <p>Your watchlist and watched players are linked to your Steam account — so they follow you anywhere
+             you sign in, and nobody else has access to them.</p>
+          <a href="/auth/steam/login" class="btn-steam">
+            <span class="steam-icon" aria-hidden="true">⌬</span>
+            Sign in with Steam
+          </a>
+          <p class="hint">Steam OpenID 2.0 · we only receive your SteamID, public display name and avatar.
+                          You never enter a password here. <a href="/privacy">Privacy</a>.</p>
+        </div>
+      </div>
+
+      <div id="auth-only">
+        <section class="add-server-section">
+          <form id="add-server-form" class="add-form">
+            <input type="text"   id="srv-host" placeholder="IP or hostname  (e.g. 192.168.1.1)" required />
+            <input type="number" id="srv-port" placeholder="Query port (28015)" min="1" max="65535" required />
+            <button type="submit" class="btn-primary">+ Server</button>
+          </form>
+          <p class="hint">
+            Prefer to search instead of type? <a href="#" data-go-tab="browse">Server Browser</a>.
+          </p>
+        </section>
+
+        <section class="servers-section">
+          <div id="servers-empty" class="empty-state" hidden>
+            <h2>No servers in your watchlist yet.</h2>
+            <p>Head over to the <a href="#" data-go-tab="browse"><strong>Server Browser</strong></a> and pick a few.</p>
+          </div>
+          <div id="servers" class="server-grid"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="view view-browse" data-view="browse" hidden>
+      <header class="view-header">
+        <h1 class="view-title">Server Browser</h1>
+        <p class="view-sub" id="browse-status">Live Rust servers.</p>
+      </header>
+
+      <form id="browse-filter" class="browse-filter">
+        <input type="search" id="bf-q" placeholder="Search server names …" />
+        <select id="bf-region" title="Region">
+          <option value="all">All regions</option>
+          <option value="eu" selected>Europe</option>
+          <option value="us-e">US East</option>
+          <option value="us-w">US West</option>
+          <option value="sa">South America</option>
+          <option value="asia">Asia</option>
+          <option value="au">Australia</option>
+          <option value="me">Middle East</option>
+          <option value="af">Africa</option>
+        </select>
+        <select id="bf-tier" title="Tier">
+          <option value="all">All tiers</option>
+          <option value="vanilla">Vanilla</option>
+          <option value="2x">2x</option>
+          <option value="3x">3x</option>
+          <option value="5x">5x</option>
+          <option value="10x">10x</option>
+          <option value="pve">PvE</option>
+          <option value="modded">Modded</option>
+        </select>
+        <select id="bf-sort" title="Sort">
+          <option value="pop_desc">Pop ↓</option>
+          <option value="pop_asc">Pop ↑</option>
+          <option value="name">Name</option>
+          <option value="ping">Ping</option>
+          <option value="wipe">Wipe date</option>
+        </select>
+        <label class="bf-pop">
+          Min pop
+          <input type="number" id="bf-min-pop" min="0" max="500" value="0" />
+        </label>
+        <button type="button" id="bf-refresh" class="btn-ghost" title="Bypass cache, fetch fresh">⟳</button>
+      </form>
+
+      <div id="browse-loading" class="browse-loading" hidden>
+        <div class="spinner"></div>
+        <span>Fetching live server list … takes a few seconds.</span>
+      </div>
+
+      <div id="browse-results" class="browse-results"></div>
+    </section>
+
+    <!-- ── Settings View ── -->
+    <section class="view view-settings" data-view="settings" hidden>
+      <header class="view-header">
+        <h1 class="view-title">Settings</h1>
+        <p class="view-sub">Notification preferences. Per-account, sync across all your sessions.</p>
+      </header>
+
+      <div id="settings-guest" class="guest-cta" hidden>
+        <div class="guest-cta-inner">
+          <h2>Sign in to manage settings</h2>
+          <p>Settings live on your account. Sign in with Steam to get them.</p>
+          <a href="/auth/steam/login" class="btn-steam">
+            <span class="steam-icon" aria-hidden="true">⌬</span> Sign in with Steam
+          </a>
+        </div>
+      </div>
+
+      <form id="settings-form" class="settings-card" hidden>
+        <fieldset class="settings-section">
+          <legend>Discord Webhook</legend>
+          <p class="settings-hint">Pipe player-online/-offline events to a Discord channel.
+             Create a webhook in <strong>Server Settings → Integrations → Webhooks → New Webhook</strong>,
+             then paste the URL here. Per-account, never shared.</p>
+          <input type="url" id="set-discord-webhook"
+                 placeholder="https://discord.com/api/webhooks/…"
+                 pattern="https://(?:ptb\.|canary\.)?(?:discord|discordapp)\.com/api/webhooks/.+" />
+          <div class="settings-row">
+            <label class="check"><input type="checkbox" id="set-notify-online" checked />
+              Notify when a watched player comes <strong>online</strong></label>
+            <label class="check"><input type="checkbox" id="set-notify-offline" />
+              Notify when a watched player goes <strong>offline</strong></label>
+          </div>
+          <div class="settings-actions">
+            <button type="submit" class="btn-primary">Save settings</button>
+            <button type="button" id="btn-test-webhook" class="btn-ghost">Send test message</button>
+            <span id="settings-status" class="settings-status"></span>
+          </div>
+        </fieldset>
+      </form>
+    </section>
+
+    <section class="view view-about" data-view="about" hidden>
+      <header class="view-header">
+        <h1 class="view-title">About RustMetrics</h1>
+      </header>
+      <div class="about-card">
+        <p><strong>RustMetrics</strong> is a free, focused server and player tracker for Facepunch Rust.
+           Data comes from Valve's standard UDP query protocols plus the BattleMetrics public API
+           as a fallback for servers that disable A2S responses:</p>
+        <ul>
+          <li><strong>A2S</strong> for population, map, ping and player list of each watched server.</li>
+          <li><strong>BattleMetrics</strong> for the live server browser and as fallback when a server blocks A2S.</li>
+        </ul>
+        <p>Authentication runs over <strong>Steam OpenID 2.0</strong> — you never enter your Steam password here.
+           We only see your public SteamID64, display name and avatar.</p>
+        <div class="about-tech">
+          <span class="kv"><span class="k">Backend</span><span class="v">Python + Postgres</span></span>
+          <span class="kv"><span class="k">Frontend</span><span class="v">Vanilla HTML / CSS / JS</span></span>
+          <span class="kv"><span class="k">Auth</span><span class="v">Steam OpenID 2.0</span></span>
+          <span class="kv"><span class="k">Open Source</span><span class="v">soon</span></span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<aside id="detail-drawer" class="drawer" hidden>
+  <div class="drawer-overlay" data-close-drawer></div>
+  <div class="drawer-panel">
+    <header class="drawer-header">
+      <button class="btn-ghost btn-back" data-close-drawer>← Back</button>
+      <h2 id="drawer-title">Server</h2>
+    </header>
+    <div class="drawer-body" id="drawer-body"></div>
+  </div>
+</aside>
+
+<div id="cookie-banner" class="cookie-banner" hidden>
+  <span>RustMetrics sets a single <strong>essential session cookie</strong>
+        (<code>rm_session</code>) when you sign in with Steam. No tracking, no third parties,
+        no analytics. <a href="/privacy">More in Privacy</a>.</span>
+  <button id="cookie-ack" class="btn-ghost">OK</button>
+</div>
+
+<footer class="footer">
+  <span>RustMetrics</span>
+  <span class="footer-divider">·</span>
+  <a href="/imprint">Imprint</a>
+  <span class="footer-divider">·</span>
+  <a href="/privacy">Privacy</a>
+  <span class="footer-divider">·</span>
+  <span id="footer-ts">—</span>
+</footer>
+
+<script src="/app.js?v=20260517f"></script>
+</body>
+</html>
