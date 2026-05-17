@@ -92,7 +92,7 @@ sudo mkdir -p /opt/rustmetrics
 sudo chown rustmetrics:rustmetrics /opt/rustmetrics
 
 # 3. Code
-sudo -u rustmetrics git clone https://github.com/<your-user>/rustmetrics-public.git /opt/rustmetrics
+sudo -u rustmetrics git clone https://github.com/swiss-shift-ch/rustmetrics.git /opt/rustmetrics
 cd /opt/rustmetrics
 
 # 4. Postgres

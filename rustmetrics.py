@@ -1554,6 +1554,8 @@ def render_public_server_page(host: str, port: int) -> tuple[str, int]:
   <a href="/imprint">Imprint</a>
   <span class="footer-divider">·</span>
   <a href="/privacy">Privacy</a>
+  <span class="footer-divider">·</span>
+  <a href="https://github.com/swiss-shift-ch/rustmetrics" target="_blank" rel="noopener" title="Source on GitHub">GitHub ★</a>
 </footer>
 
 </body></html>"""
@@ -2292,6 +2294,8 @@ def render_player_profile_page(bm_id: int) -> tuple[str, int]:
   <a href="/imprint">Imprint</a>
   <span class="footer-divider">·</span>
   <a href="/privacy">Privacy</a>
+  <span class="footer-divider">·</span>
+  <a href="https://github.com/swiss-shift-ch/rustmetrics" target="_blank" rel="noopener" title="Source on GitHub">GitHub ★</a>
 </footer>
 
 <script src="/player-page.js?v=20260517f"></script>
