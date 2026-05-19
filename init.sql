@@ -117,6 +117,53 @@ CREATE INDEX IF NOT EXISTS idx_psessions_bmid ON player_sessions(bm_player_id, s
 -- NULL bedeutet "User hat noch keinen generiert" — wird lazy on-demand erstellt.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS calendar_token TEXT UNIQUE;
 
+-- Game-Scores (Rust Flap Minigame auf der Site).
+-- Pro Spieler eine Zeile pro Game-Over. Leaderboard zieht MAX(score) per User.
+CREATE TABLE IF NOT EXISTS game_scores (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT  NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    game        TEXT    NOT NULL,
+    score       INTEGER NOT NULL,
+    duration_ms INTEGER,
+    played_at   BIGINT  NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_game_scores_user_game  ON game_scores(user_id, game, score DESC);
+CREATE INDEX IF NOT EXISTS idx_game_scores_game_score ON game_scores(game, score DESC);
+
+-- Ghost-Flag für seeded Demo-Spieler — werden im Leaderboard mitgezählt aber
+-- aus User-Stats (admin /admin/stats) rausgefiltert. Real-User-Counts bleiben sauber.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_ghost BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Seed: 10 Ghost-Spieler mit beatbaren Scores (5..18). Realistische Flappy-Bird-
+-- Zahlen — ein motivierter Spieler hackt den Top-Platz nach 3-5 Tries.
+-- IDs 1_000_001..1_000_010 — weit unter real-Steam-Range (76_561_197+), keine
+-- Kollisionsgefahr. ON CONFLICT macht's idempotent (init.sql ist immer re-runnable).
+INSERT INTO users (id, display_name, avatar_url, profile_url, is_admin, is_ghost, created_at, last_login_at) VALUES
+  (1000001, 'SoloRoamer',       NULL, NULL, FALSE, TRUE, EXTRACT(EPOCH FROM NOW() - INTERVAL '14 days')::bigint, EXTRACT(EPOCH FROM NOW() - INTERVAL '2 days')::bigint),
+  (1000002, 'Bushcamper.exe',   NULL, NULL, FALSE, TRUE, EXTRACT(EPOCH FROM NOW() - INTERVAL '12 days')::bigint, EXTRACT(EPOCH FROM NOW() - INTERVAL '1 days')::bigint),
+  (1000003, 'RoofCamp Steve',   NULL, NULL, FALSE, TRUE, EXTRACT(EPOCH FROM NOW() - INTERVAL '10 days')::bigint, EXTRACT(EPOCH FROM NOW() - INTERVAL '3 days')::bigint),
+  (1000004, 'RaidAlertGod',     NULL, NULL, FALSE, TRUE, EXTRACT(EPOCH FROM NOW() - INTERVAL '9 days')::bigint,  EXTRACT(EPOCH FROM NOW() - INTERVAL '4 days')::bigint),
+  (1000005, 'Hazmat_Diver',     NULL, NULL, FALSE, TRUE, EXTRACT(EPOCH FROM NOW() - INTERVAL '8 days')::bigint,  EXTRACT(EPOCH FROM NOW() - INTERVAL '2 days')::bigint),
+  (1000006, 'C4-Karen',         NULL, NULL, FALSE, TRUE, EXTRACT(EPOCH FROM NOW() - INTERVAL '7 days')::bigint,  EXTRACT(EPOCH FROM NOW() - INTERVAL '5 days')::bigint),
+  (1000007, 'SulfurGremlin',    NULL, NULL, FALSE, TRUE, EXTRACT(EPOCH FROM NOW() - INTERVAL '6 days')::bigint,  EXTRACT(EPOCH FROM NOW() - INTERVAL '1 days')::bigint),
+  (1000008, 'ProneAndDone',     NULL, NULL, FALSE, TRUE, EXTRACT(EPOCH FROM NOW() - INTERVAL '5 days')::bigint,  EXTRACT(EPOCH FROM NOW() - INTERVAL '6 days')::bigint),
+  (1000009, 'WallShareW',       NULL, NULL, FALSE, TRUE, EXTRACT(EPOCH FROM NOW() - INTERVAL '4 days')::bigint,  EXTRACT(EPOCH FROM NOW() - INTERVAL '3 days')::bigint),
+  (1000010, 'FreshSpawnFranz',  NULL, NULL, FALSE, TRUE, EXTRACT(EPOCH FROM NOW() - INTERVAL '3 days')::bigint,  EXTRACT(EPOCH FROM NOW() - INTERVAL '1 days')::bigint)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO game_scores (user_id, game, score, duration_ms, played_at) VALUES
+  (1000001, 'flap', 18, 27000, EXTRACT(EPOCH FROM NOW() - INTERVAL '2 days')::bigint),
+  (1000002, 'flap', 16, 24000, EXTRACT(EPOCH FROM NOW() - INTERVAL '1 days')::bigint),
+  (1000003, 'flap', 14, 21000, EXTRACT(EPOCH FROM NOW() - INTERVAL '3 days')::bigint),
+  (1000004, 'flap', 13, 19500, EXTRACT(EPOCH FROM NOW() - INTERVAL '4 days')::bigint),
+  (1000005, 'flap', 11, 17000, EXTRACT(EPOCH FROM NOW() - INTERVAL '2 days')::bigint),
+  (1000006, 'flap', 10, 15500, EXTRACT(EPOCH FROM NOW() - INTERVAL '5 days')::bigint),
+  (1000007, 'flap',  9, 14000, EXTRACT(EPOCH FROM NOW() - INTERVAL '1 days')::bigint),
+  (1000008, 'flap',  8, 12500, EXTRACT(EPOCH FROM NOW() - INTERVAL '6 days')::bigint),
+  (1000009, 'flap',  6, 10000, EXTRACT(EPOCH FROM NOW() - INTERVAL '3 days')::bigint),
+  (1000010, 'flap',  5,  8500, EXTRACT(EPOCH FROM NOW() - INTERVAL '1 days')::bigint)
+ON CONFLICT DO NOTHING;
+
 -- Steam-gepflegte Rust-Lifetime-Stats (kommen aus GetUserStatsForGame).
 -- Privacy-Status: privat = NULL in den Counter-Feldern, is_private = TRUE.
 -- raw_json speichert den kompletten Steam-Response für künftige neue Counter

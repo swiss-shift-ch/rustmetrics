@@ -812,6 +812,85 @@ def get_rust_user_stats(steamid64: int, force_refresh: bool = False) -> dict | N
         return dict(r) if r else None
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  GAME SCORES (Rust Flap Minigame)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Rate-Limit fürs Score-Submit (max 10 per User-Minute, gegen botted submissions).
+_score_buckets: dict[int, TokenBucket] = {}
+_score_buckets_lock = threading.Lock()
+
+def _user_score_bucket(user_id: int) -> TokenBucket:
+    with _score_buckets_lock:
+        b = _score_buckets.get(user_id)
+        if not b:
+            # 10 / minute, also 1 token / 6s, capacity 10
+            b = TokenBucket(capacity=10, refill_rate=10/60)
+            _score_buckets[user_id] = b
+    return b
+
+
+def submit_game_score(user_id: int, game: str, score: int,
+                      duration_ms: int | None) -> tuple[bool, str | None]:
+    """Speichert einen Game-Score nach Plausibilitäts-Checks.
+    Returns (ok, error_message_if_not_ok).
+    """
+    if game not in ("flap",):
+        return False, "unknown game"
+    if not isinstance(score, int) or not (0 <= score <= 100000):
+        return False, "invalid score range"
+    # Game-Duration vs. Score Plausibility: jede Pipe ist ~PIPE_DIST/PIPE_SPD frames
+    # = 220 / 2.3 / 60 ≈ 1.59s, also score * 1.4s minimum erwartet (Faktor < 1 erlaubt
+    # 'lucky early pipe' aber filtert Auto-Cheats). 300ms Buffer fürs Init.
+    if duration_ms is not None:
+        try: dur = int(duration_ms)
+        except (TypeError, ValueError): dur = 0
+        if dur > 0 and score > 0 and dur < (score * 1400 - 300):
+            return False, "duration implausibly short for score"
+        if dur > 12 * 3600 * 1000:  # > 12h game session — clearly bogus
+            return False, "duration implausibly long"
+    # Rate-Limit (eigener Bucket pro User)
+    if not _user_score_bucket(user_id).take(1):
+        return False, "rate limited"
+    try:
+        with _Conn() as (conn, cur):
+            cur.execute(
+                "INSERT INTO game_scores (user_id, game, score, duration_ms, played_at) "
+                "VALUES (%s,%s,%s,%s,%s)",
+                (user_id, game, int(score),
+                 int(duration_ms) if duration_ms is not None else None,
+                 int(time.time())))
+    except Exception as e:
+        return False, f"db error: {type(e).__name__}: {e}"
+    return True, None
+
+
+def get_game_leaderboard(game: str, limit: int = 10) -> list[dict]:
+    """Top-N Spieler nach persönlichem Bestscore (1 Zeile pro User)."""
+    with _Conn() as (conn, cur):
+        cur.execute(
+            "SELECT u.id, u.display_name, u.avatar_url, "
+            "       MAX(gs.score) AS best, "
+            "       COUNT(*) AS games_played, "
+            "       MAX(gs.played_at) AS last_played "
+            "FROM game_scores gs JOIN users u ON u.id = gs.user_id "
+            "WHERE gs.game = %s "
+            "GROUP BY u.id, u.display_name, u.avatar_url "
+            "ORDER BY best DESC, MIN(gs.played_at) ASC "
+            "LIMIT %s",
+            (game, int(limit)))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_user_game_best(user_id: int, game: str) -> int:
+    with _Conn() as (conn, cur):
+        cur.execute(
+            "SELECT MAX(score) AS best FROM game_scores WHERE user_id=%s AND game=%s",
+            (int(user_id), game))
+        r = cur.fetchone()
+        return int(r["best"]) if r and r["best"] is not None else 0
+
+
 def resolve_steam_id_from_bm(bm_player_id: int) -> int | None:
     """Versucht aus BattleMetrics-API die Steam-ID für einen BM-Player rauszuziehen.
     Funktioniert nur wenn der Player sein Steam öffentlich auf BM hat.
@@ -2015,24 +2094,27 @@ def admin_stats_data() -> dict:
     now = int(time.time())
     data: dict = {"generated_at": now}
     with _Conn() as (conn, cur):
-        cur.execute("SELECT COUNT(*) AS c FROM users")
+        # User-Counts: Ghost-Spieler (seeded für Leaderboard-Demo) ausschließen
+        cur.execute("SELECT COUNT(*) AS c FROM users WHERE NOT is_ghost")
         data["users_total"] = cur.fetchone()["c"]
 
         cur.execute(
-            "SELECT COUNT(*) AS c FROM sessions WHERE expires_at > %s", (now,))
+            "SELECT COUNT(*) AS c FROM sessions s "
+            "JOIN users u ON u.id = s.user_id "
+            "WHERE s.expires_at > %s AND NOT u.is_ghost", (now,))
         data["sessions_active"] = cur.fetchone()["c"]
 
         for k, secs in [("active_1h", 3600), ("active_24h", 86400),
                         ("active_7d", 7 * 86400), ("active_30d", 30 * 86400)]:
             cur.execute(
-                "SELECT COUNT(*) AS c FROM users WHERE last_login_at > %s",
+                "SELECT COUNT(*) AS c FROM users WHERE last_login_at > %s AND NOT is_ghost",
                 (now - secs,))
             data[k] = cur.fetchone()["c"]
 
         for k, secs in [("new_24h", 86400), ("new_7d", 7 * 86400),
                         ("new_30d", 30 * 86400)]:
             cur.execute(
-                "SELECT COUNT(*) AS c FROM users WHERE created_at > %s",
+                "SELECT COUNT(*) AS c FROM users WHERE created_at > %s AND NOT is_ghost",
                 (now - secs,))
             data[k] = cur.fetchone()["c"]
 
@@ -2076,16 +2158,16 @@ def admin_stats_data() -> dict:
             "GROUP BY name ORDER BY watchers DESC, name LIMIT 10")
         data["top_watched_players"] = [dict(r) for r in cur.fetchall()]
 
-        # Letzte 10 Signups
+        # Letzte 10 Signups (echte User, keine Ghosts)
         cur.execute(
             "SELECT id, display_name, created_at, last_login_at "
-            "FROM users ORDER BY created_at DESC LIMIT 10")
+            "FROM users WHERE NOT is_ghost ORDER BY created_at DESC LIMIT 10")
         data["recent_signups"] = [dict(r) for r in cur.fetchall()]
 
-        # Signups pro Tag, letzte 14 Tage (für Sparkline)
+        # Signups pro Tag, letzte 14 Tage (für Sparkline) — auch ohne Ghosts
         cur.execute(
             "SELECT DATE(to_timestamp(created_at)) AS day, COUNT(*) AS c "
-            "FROM users WHERE created_at > %s "
+            "FROM users WHERE created_at > %s AND NOT is_ghost "
             "GROUP BY day ORDER BY day",
             (now - 14 * 86400,))
         data["signups_by_day"] = [(str(r["day"]), r["c"]) for r in cur.fetchall()]
@@ -2965,6 +3047,27 @@ class Handler(SimpleHTTPRequestHandler):
                 d = api_server_detail(sess["user_id"], sid, hours)
                 if d is None: return self._json({"error": "not found"}, 404)
                 return self._json(d)
+        # Game leaderboard (public, anonymous can see)
+        if u.path == "/api/game/flap/leaderboard":
+            try:
+                board = get_game_leaderboard("flap", limit=10)
+                # Optional: user's own best if authed
+                sess = self._read_session()
+                my_best = None
+                if sess:
+                    my_best = get_user_game_best(sess["user_id"], "flap")
+                return self._json({
+                    "game": "flap",
+                    "top": board,
+                    "my_best": my_best,
+                })
+            except Exception as e:
+                return self._json({"error": str(e)}, 500)
+        if u.path == "/api/game/flap/me":
+            sess = self._read_session()
+            if not sess: return self._json({"error": "auth required"}, 401)
+            return self._json({"best": get_user_game_best(sess["user_id"], "flap")})
+
         # Logged-in user's own Rust stats (cached, fetched from Steam API)
         if u.path == "/api/me/stats":
             sess = self._read_session()
@@ -3222,6 +3325,23 @@ class Handler(SimpleHTTPRequestHandler):
 
         if u.path == "/api/me/settings":
             return self._api_save_settings(sess["user_id"])
+        # Game score submission (auth required, rate-limited, plausibility-checked)
+        if u.path == "/api/game/flap/score":
+            body = self._read_json()
+            try:
+                score = int(body.get("score") or 0)
+            except (TypeError, ValueError):
+                return self._json({"error": "bad score"}, 400)
+            duration = body.get("duration_ms")
+            if duration is not None:
+                try: duration = int(duration)
+                except (TypeError, ValueError): duration = None
+            ok, err = submit_game_score(sess["user_id"], "flap", score, duration)
+            if not ok:
+                return self._json({"ok": False, "error": err}, 400)
+            new_best = get_user_game_best(sess["user_id"], "flap")
+            return self._json({"ok": True, "best": new_best})
+
         if u.path == "/api/me/stats/refresh":
             try:
                 stats = get_rust_user_stats(sess["user_id"], force_refresh=True)

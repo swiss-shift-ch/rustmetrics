@@ -50,7 +50,7 @@
 
 <!-- TODO: Google-Search-Console Meta-Tag hier einfügen wenn vorhanden -->
 
-<link rel="stylesheet" href="/style.css?v=20260517i" />
+<link rel="stylesheet" href="/style.css?v=20260519a" />
 </head>
 <body>
 
@@ -89,6 +89,10 @@
     <button class="nav-item" data-tab="mystats">
       <span class="nav-icon" aria-hidden="true">◆</span>
       <span class="nav-label">My Stats</span>
+    </button>
+    <button class="nav-item" data-tab="play" title="Mini-game — Rust Flap">
+      <span class="nav-icon" aria-hidden="true">▶</span>
+      <span class="nav-label">Play</span>
     </button>
     <button class="nav-item" data-tab="settings">
       <span class="nav-icon" aria-hidden="true">⚙</span>
@@ -196,6 +200,49 @@
       </div>
 
       <div id="browse-results" class="browse-results"></div>
+    </section>
+
+    <!-- ── Play View — Rust Flap Mini-Game while-you-wait-for-offline-raid ── -->
+    <section class="view view-play" data-view="play" hidden>
+      <header class="view-header">
+        <h1 class="view-title">Rust Flap</h1>
+        <p class="view-sub">While you wait for the offline-raid window — flap through wooden spike walls.
+           Click / Space / Tap to flap. Sign in with Steam to submit your score to the leaderboard.</p>
+      </header>
+
+      <div class="play-layout">
+        <div class="play-game-wrap">
+          <iframe id="game-iframe" src="/game.html" title="Rust Flap"
+            sandbox="allow-scripts allow-same-origin"
+            referrerpolicy="same-origin"></iframe>
+        </div>
+
+        <aside class="play-side">
+          <div class="play-side-section">
+            <h3>Your best</h3>
+            <div class="play-best">
+              <div id="play-best-value" class="play-best-num">—</div>
+              <div id="play-best-sub" class="hint" style="font-size:11px;">sign in to track your high-score</div>
+            </div>
+          </div>
+
+          <div class="play-side-section">
+            <h3>Top 10 · all-time</h3>
+            <ol id="play-leaderboard" class="play-leaderboard">
+              <li class="hint" style="text-align:center; padding:14px;">loading…</li>
+            </ol>
+          </div>
+
+          <div class="play-side-section">
+            <h3>How to play</h3>
+            <ul style="font-size:12px; color:var(--text-muted); padding-left:18px; line-height:1.6;">
+              <li><kbd>Space</kbd> / Click / Tap to flap</li>
+              <li><kbd>1</kbd> / <kbd>2</kbd> to switch Hazmat ↔ Metal loadout (on ready screen)</li>
+              <li>Sign in to keep your score</li>
+            </ul>
+          </div>
+        </aside>
+      </div>
     </section>
 
     <!-- ── My Stats View — eingeloggter User sieht eigene Rust-Lifetime-Stats ── -->
@@ -349,6 +396,6 @@
   <span id="footer-ts">—</span>
 </footer>
 
-<script src="/app.js?v=20260517i"></script>
+<script src="/app.js?v=20260519a"></script>
 </body>
 </html>

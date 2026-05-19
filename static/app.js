@@ -131,6 +131,9 @@
     if (name === "mystats") {
       loadMyStats();
     }
+    if (name === "play") {
+      loadPlayLeaderboard();
+    }
     try { localStorage.setItem(LS_PREFIX + "tab", name); } catch (e) {}
   }
   els.navItems.forEach(t => {
@@ -1039,6 +1042,108 @@
     loadMyStats(true);
   });
 
+  // ─── Rust Flap mini-game integration ─────────────────────────────────
+  const playEls = {
+    iframe:      document.getElementById("game-iframe"),
+    bestValue:   document.getElementById("play-best-value"),
+    bestSub:     document.getElementById("play-best-sub"),
+    leaderboard: document.getElementById("play-leaderboard"),
+  };
+  let playMyBest = 0;
+  let playLeaderboardLoaded = false;
+
+  function renderLeaderboard(board, myBest, myUserId) {
+    if (!playEls.leaderboard) return;
+    if (!board || board.length === 0) {
+      playEls.leaderboard.innerHTML =
+        '<li class="hint" style="text-align:center; padding:14px;">No scores yet — be the first.</li>';
+      return;
+    }
+    const rows = board.map((p, i) => {
+      const rank = i + 1;
+      const rankCls = rank === 1 ? "gold" : rank === 2 ? "silver" : rank === 3 ? "bronze" : "";
+      const isMe = myUserId && String(p.id) === String(myUserId);
+      const avatar = (p.avatar_url && isSafeSteamUrl(p.avatar_url))
+        ? `<img class="lb-avatar" src="${p.avatar_url}" alt="" loading="lazy" />`
+        : `<span class="lb-avatar"></span>`;
+      const name = fmt.escape(p.display_name || String(p.id));
+      return `<li${isMe ? ' class="me"' : ""}>
+        <span class="lb-rank ${rankCls}">${rank}</span>
+        ${avatar}
+        <span class="lb-name">${name}</span>
+        <span class="lb-score">${Number(p.best || 0).toLocaleString("en-US").replace(/,/g, " ")}</span>
+      </li>`;
+    }).join("");
+    playEls.leaderboard.innerHTML = rows;
+  }
+
+  function updateMyBestDisplay(best, authenticated) {
+    if (!playEls.bestValue) return;
+    if (best && best > 0) {
+      playEls.bestValue.textContent = Number(best).toLocaleString("en-US").replace(/,/g, " ");
+      playEls.bestSub.textContent = authenticated
+        ? "synced to your account"
+        : "sign in to save it";
+    } else {
+      playEls.bestValue.textContent = "—";
+      playEls.bestSub.textContent = authenticated
+        ? "play once to set your best"
+        : "sign in to track your high-score";
+    }
+  }
+
+  async function loadPlayLeaderboard() {
+    if (!playEls.leaderboard) return;
+    try {
+      const data = await api("/api/game/flap/leaderboard");
+      playMyBest = data.my_best || 0;
+      const myUserId = isAuthed() ? me.user_id : null;
+      renderLeaderboard(data.top || [], playMyBest, myUserId);
+      updateMyBestDisplay(playMyBest, isAuthed());
+      playLeaderboardLoaded = true;
+      // Send personal best into the iframe so the game shows the correct "BESTE" value
+      const ifr = playEls.iframe;
+      if (ifr && ifr.contentWindow) {
+        try { ifr.contentWindow.postMessage({ type: "rustflap_set_best", best: playMyBest }, "*"); }
+        catch (e) {}
+      }
+    } catch (e) {
+      playEls.leaderboard.innerHTML =
+        '<li class="hint" style="text-align:center; padding:14px; color:var(--red)">Couldn\'t load leaderboard.</li>';
+    }
+  }
+
+  // postMessage-Bridge: empfange Events vom game-iframe
+  window.addEventListener("message", async (e) => {
+    if (!e.data || typeof e.data !== "object") return;
+    if (e.data.type === "rustflap_ready") {
+      // Iframe geladen — schick aktuellen best (falls schon geladen)
+      const ifr = playEls.iframe;
+      if (ifr && ifr.contentWindow && playMyBest > 0) {
+        try { ifr.contentWindow.postMessage({ type: "rustflap_set_best", best: playMyBest }, "*"); }
+        catch (e) {}
+      }
+    }
+    if (e.data.type === "rustflap_die") {
+      const score = Number(e.data.score || 0);
+      const duration_ms = e.data.duration_ms ? Number(e.data.duration_ms) : null;
+      if (!isAuthed()) return;       // can't submit without auth
+      if (!score || score <= 0) return;
+      // Submit only if score > current personal best (small perf optimization)
+      try {
+        const r = await api("/api/game/flap/score", {
+          method: "POST",
+          body: JSON.stringify({ score, duration_ms }),
+        });
+        if (r && r.ok) {
+          playMyBest = r.best || score;
+          updateMyBestDisplay(playMyBest, true);
+          await loadPlayLeaderboard();  // refresh top-10
+        }
+      } catch (err) { /* silently ignore — game continues */ }
+    }
+  });
+
   // ─── Cookie banner ────────────────────────────────────────────────────
   const COOKIE_ACK_KEY = LS_PREFIX + "cookieAck";
   function setupCookieBanner() {
@@ -1062,6 +1167,6 @@
   })();
   try {
     const saved = localStorage.getItem(LS_PREFIX + "tab");
-    if (["browse","watchlist","about","settings","mystats"].includes(saved)) switchTab(saved);
+    if (["browse","watchlist","about","settings","mystats","play"].includes(saved)) switchTab(saved);
   } catch (e) {}
 })();

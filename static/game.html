@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, maximum-scale=1" />
+<title>RUST FLAP — Flappy Bird im Stil von Rust</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background:
+      radial-gradient(ellipse at center, #2a1b10 0%, #0a0604 80%);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Trebuchet MS", "Arial Black", sans-serif;
+    color: #c8a884;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  #wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    width: 100%;
+  }
+  canvas {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    box-shadow: 0 0 60px rgba(180, 80, 30, 0.25), 0 0 0 2px #3a2818;
+    background: #1a1410;
+  }
+  #footer {
+    position: fixed;
+    left: 50%;
+    bottom: 8px;
+    transform: translateX(-50%);
+    color: #6e5a44;
+    font-size: 11px;
+    letter-spacing: 1px;
+    pointer-events: none;
+    text-shadow: 0 1px 2px #000;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="400" height="600"></canvas></div>
+<div id="footer">SPACE  /  KLICK  /  TAP  —  FLATTERN</div>
+<script src="/game.js?v=20260519a"></script>
+</body>
+</html>
