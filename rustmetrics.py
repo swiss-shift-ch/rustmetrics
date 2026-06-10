@@ -107,7 +107,14 @@ REGION_TO_COUNTRIES = {
     "me":   "AE,SA,IL,TR",
     "af":   "ZA",
 }
-BROWSE_MASTER_LIMIT = 800
+# Wie viele Server wir maximal vom Master holen. Rust hat ~9'000-10'000
+# registrierte Server; GetServerList hat KEINE Pagination, keinen Sort-Param
+# und liefert in Valves interner (quasi-willkuerlicher) Reihenfolge.
+# Ein zu kleines Limit ergibt also einen zufaelligen Teil-Slice — grosse
+# Netzwerke (Moose, Rustafied, Facepunch-Officials) fehlen dann einfach
+# und die Suche findet sie nie, weil sie nur den Cache filtert.
+# 20000 holt die komplette Liste in einem Call (~3-5 MB JSON).
+BROWSE_MASTER_LIMIT = _env("RM_BROWSE_MASTER_LIMIT", 20000, int)
 REGION_BYTES     = {
     "all": 0xFF, "us-e": 0x00, "us-w": 0x01, "sa": 0x02,
     "eu":  0x03, "asia": 0x04, "au":  0x05, "me": 0x06, "af": 0x07,
@@ -249,7 +256,8 @@ def query_steam_web_api(region: int = 0xFF, limit: int = BROWSE_MASTER_LIMIT) ->
     params = {"key": STEAM_API_KEY, "filter": "".join(filter_parts), "limit": str(limit)}
     url = STEAM_GETSERVERLIST_URL + "?" + urllib.parse.urlencode(params)
     try:
-        with urllib.request.urlopen(url, timeout=10) as r:
+        # 30s: bei limit=20000 ist die Response ~3-5 MB
+        with urllib.request.urlopen(url, timeout=30) as r:
             payload = json.loads(r.read().decode("utf-8"))
     except Exception as e:
         print(f"[steam_web_api] error: {e}", file=sys.stderr, flush=True)
@@ -3527,6 +3535,7 @@ def _banner():
     print(f"  PG:               {_env('RM_PGHOST', '127.0.0.1')}:{_env('RM_PGPORT', 5432, int)}/{_env('RM_PGDATABASE', 'rustmetrics')}")
     print(f"  Poll-Intervall:   {POLL_INTERVAL}s")
     print(f"  Browse-Cache:     {BROWSE_CACHE_TTL}s")
+    print(f"  Browse-Limit:     {BROWSE_MASTER_LIMIT} Server max vom Master")
     print(f"  Steam-API-Key:    {'gesetzt' if STEAM_API_KEY else 'NICHT gesetzt (Avatar/Name fehlen)'}")
     print(f"  Admin-SteamIDs:   {ADMIN_STEAMIDS or '—'}")
     print(f"  Rate-Limit:       {RL_REQ_PER_MIN} req/min/IP, browse-miss {RL_BROWSE_PER_H}/h/IP")
